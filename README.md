@@ -75,7 +75,7 @@ você vai clicar no dia a dia.
 ```powershell
 pip install -r requirements.txt
 copy .env.example .env
-uvicorn app:app --host 0.0.0.0 --port 8000
+uvicorn app:app --app-dir src --host 0.0.0.0 --port 8000
 ```
 Abra **http://localhost:8000/docs** (Swagger) ou **http://localhost:8000/app** (chat).
 
@@ -142,16 +142,17 @@ jarvis-ia/
 ├── .env.example
 ├── .gitignore
 │
-├── app.py                   # API principal (FastAPI)
-├── database.py               # Persistência (SQLite — um arquivo só)
-├── tools.py                    # Ferramentas: memória, comandos, Word, Linear, apps
-├── llm_client.py                 # Fala com o Ollama (modelo local)
-├── media.py                        # Processamento de áudio/vídeo
-├── embeddings.py                     # Busca semântica na memória
-├── tts.py                              # Texto pra fala (espeak-ng)
-├── word_control.py                       # Automação do Microsoft Word (Windows only)
-├── wake_word_listener.py                    # "Hey JARVIS" — ativação por voz
-├── tray_app.py                                 # Ícone na bandeja do sistema
+├── src/                      # Todo o código Python da aplicação, junto
+│   ├── app.py                  # API principal (FastAPI)
+│   ├── database.py               # Persistência (SQLite — fica na raiz, não aqui)
+│   ├── tools.py                    # Ferramentas: memória, comandos, Word, Linear, apps
+│   ├── llm_client.py                 # Fala com o Ollama (modelo local)
+│   ├── media.py                        # Processamento de áudio/vídeo
+│   ├── embeddings.py                     # Busca semântica na memória
+│   ├── tts.py                              # Texto pra fala (espeak-ng)
+│   ├── word_control.py                       # Automação do Microsoft Word (Windows only)
+│   ├── wake_word_listener.py                   # "Hey JARVIS" — ativação por voz
+│   └── tray_app.py                               # Ícone na bandeja do sistema
 │
 ├── config/
 │   └── apps_config.json    # Nome → comando dos apps/jogos que abrem por voz
@@ -165,6 +166,10 @@ jarvis-ia/
 │   ├── icon-192.png
 │   └── icon-512.png
 │
+├── .github/
+│   └── workflows/
+│       └── ci.yml           # Checa sintaxe + instalação no Windows a cada commit
+│
 └── scripts/                 # Lógica interna de instalação (não mexa direto aqui)
     ├── setup.ps1             # O que o Instalar_JARVIS.bat roda por trás
     ├── uninstall.ps1          # O que o Desinstalar_JARVIS.bat roda por trás
@@ -174,6 +179,14 @@ jarvis-ia/
     ├── start_server.bat           # Rodar manualmente p/ depuração (janela visível)
     └── start_wake_word.bat         # Rodar manualmente p/ depuração (janela visível)
 ```
+
+**Nota técnica**: os arquivos em `src/` continuam se importando entre si
+normalmente (`import database as db`, `import tools`, etc) — o comando
+`uvicorn app:app --app-dir src` avisa o uvicorn pra procurar o `app.py`
+dentro de `src/` e automaticamente deixa os módulos vizinhos visíveis pros
+imports. `database.py` e `tools.py` sabem "subir um nível" pra continuar
+salvando o banco de dados (`jarvis.db`) e lendo o `config/apps_config.json`
+na raiz do projeto, não dentro de `src/`.
 
 ## Ferramentas disponíveis
 
@@ -289,10 +302,10 @@ localmente e continuamente; o áudio da sua fala só é enviado ao servidor
 **depois** da wake word ser detectada.
 
 ### Rodar
-Com o servidor principal já rodando (`uvicorn app:app ...` num terminal),
-abra outro terminal:
+Com o servidor principal já rodando (`uvicorn app:app --app-dir src ...`
+num terminal), abra outro terminal:
 ```powershell
-python wake_word_listener.py
+python src\wake_word_listener.py
 ```
 Fala "Hey JARVIS", espera o bipe, fala seu pedido. A resposta toca no
 alto-falante automaticamente.
