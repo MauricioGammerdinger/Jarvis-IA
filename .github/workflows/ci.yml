@@ -1,0 +1,41 @@
+name: CI
+
+"on":
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  syntax-check:
+    name: Checar sintaxe Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compilar todos os arquivos .py (pega erro de sintaxe na hora)
+        run: |
+          find . -name "*.py" -not -path "*/venv/*" -not -path "*/.git/*" -print0 \
+            | xargs -0 python -m py_compile
+
+      - name: Validar apps_config.json
+        run: python -m json.tool config/apps_config.json > /dev/null
+
+  windows-install-check:
+    name: Testar instalação real no Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências (requirements.txt)
+        run: pip install -r requirements.txt
