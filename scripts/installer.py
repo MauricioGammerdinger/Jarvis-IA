@@ -65,9 +65,31 @@ def _create_shortcut(shortcut_path: Path, target: Path, icon: Path, description:
     shortcut.save()
 
 
+def _find_ollama() -> bool:
+    """Confere se o Ollama está instalado e funcionando. Não instala sozinho —
+    o instalador oficial do Ollama não tem opção silenciosa/sem clique."""
+    try:
+        result = subprocess.run(["ollama", "--version"], capture_output=True, text=True, timeout=10)
+        return result.returncode == 0
+    except (FileNotFoundError, OSError):
+        return False
+
+
 def main() -> None:
     print("=== Instalador do J.A.R.V.I.S. ===")
     print(f"Pasta do projeto: {PROJECT_DIR}\n")
+
+    if not _find_ollama():
+        print("ATENCAO: o Ollama nao foi encontrado nesta maquina.")
+        print("Ele e o programa que roda a IA local -- sem ele, o JARVIS instala")
+        print("mas nao consegue responder nada. Abrindo a pagina de download...")
+        import webbrowser
+
+        webbrowser.open("https://ollama.com/download")
+        print("\nDepois de instalar, rode no terminal: ollama pull gemma4")
+        input("\nPressione Enter pra continuar a instalacao do JARVIS mesmo assim...")
+    else:
+        print("Ollama encontrado.\n")
 
     venv_dir = PROJECT_DIR / "venv"
     venv_python = venv_dir / "Scripts" / "python.exe"

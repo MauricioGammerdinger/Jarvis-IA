@@ -38,6 +38,35 @@ if (-not $PythonCmd) {
 }
 Write-Host "Python encontrado: $PythonCmd" -ForegroundColor Green
 
+# O Ollama é quem roda o modelo de IA local — sem ele, o JARVIS instala mas
+# não consegue conversar de verdade. Não dá pra instalar ele sozinho de
+# forma 100% automática (o instalador oficial do Ollama não tem opção de
+# instalação silenciosa/sem clique — isso é uma limitação deles, não nossa),
+# então checamos e já facilitamos o máximo possível: abrimos a página de
+# download pronta, sem você precisar procurar.
+function Find-Ollama {
+    try {
+        & ollama --version *>$null
+        if ($LASTEXITCODE -eq 0) { return $true }
+    } catch {}
+    return $false
+}
+
+if (-not (Find-Ollama)) {
+    Write-Host "`nATENCAO: o Ollama nao foi encontrado nesta maquina." -ForegroundColor Yellow
+    Write-Host "   Ele e o programa que roda a IA local -- sem ele, o JARVIS nao" -ForegroundColor Yellow
+    Write-Host "   consegue responder nada, mesmo com o resto instalado certo." -ForegroundColor Yellow
+    Write-Host "   Abrindo a pagina de download pra voce..." -ForegroundColor Yellow
+    Start-Process "https://ollama.com/download"
+    Write-Host "`n   Depois de instalar o Ollama, rode no terminal:" -ForegroundColor Yellow
+    Write-Host "     ollama pull gemma4" -ForegroundColor Cyan
+    Write-Host "   (Pode fazer isso agora ou depois -- este instalador continua," -ForegroundColor Yellow
+    Write-Host "   mas o JARVIS só vai responder de verdade depois desse passo.)" -ForegroundColor Yellow
+    Read-Host "`nPressione Enter pra continuar a instalação do JARVIS mesmo assim"
+} else {
+    Write-Host "Ollama encontrado." -ForegroundColor Green
+}
+
 # 1. Criar ambiente virtual Python (isolado, não mistura com outros projetos)
 if (-not (Test-Path "$ProjectDir\venv")) {
     Write-Host "`n[1/5] Criando ambiente virtual Python..." -ForegroundColor Yellow
