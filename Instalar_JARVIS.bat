@@ -8,7 +8,7 @@ echo Iniciando instalacao do J.A.R.V.I.S....
 echo (uma janela do PowerShell vai abrir - isso e esperado)
 echo.
 
-powershell -ExecutionPolicy Bypass -File "%~dp0setup.ps1"
+powershell -ExecutionPolicy Bypass -File "%~dp0scripts\setup.ps1"
 
 echo.
 echo Se tudo deu certo, tem um atalho "J.A.R.V.I.S." na sua area de trabalho agora.

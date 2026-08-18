@@ -77,6 +77,43 @@ uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 Abra **http://localhost:8000/docs** (Swagger) ou **http://localhost:8000/app** (chat).
 
+## Gerando o instalador .exe (com ícone próprio, opcional)
+
+Se quiser um instalador de verdade — `.exe`, com o ícone do JARVIS, igual
+Discord/Chrome — em vez do `.bat` (que usa o ícone genérico do Windows),
+dá pra compilar um. **Isso é opcional**: o `Instalar_JARVIS.bat` já
+funciona sozinho sem esse passo extra.
+
+### Compilar (rode uma vez, precisa de Python instalado)
+```powershell
+build_installer.bat
+```
+Isso instala o PyInstaller temporariamente, compila `scripts\installer.py`
+num `Instalar_JARVIS.exe` (colocado na raiz do projeto) com o ícone
+embutido, e limpa os arquivos temporários. Vai levar um ou dois minutos.
+
+### O que isso resolve, e o que **não** resolve
+- ✅ Resolve: o instalador em si vira um `.exe` de verdade, com ícone
+  próprio, sem precisar do `.bat` com ícone genérico.
+- ❌ **Não** resolve: seu PC (ou de quem for usar) ainda precisa ter
+  **Python instalado** — o `.exe` do instalador só automatiza os mesmos
+  passos de sempre (criar ambiente virtual, instalar dependências), ele
+  não elimina a necessidade de Python existir no sistema. Isso é inerente
+  ao JARVIS ser um programa Python — não tem como contornar isso sem
+  reescrever o projeto inteiro em outra linguagem.
+
+### ⚠️ Sobre o teste deste `.exe`
+Não foi possível rodar o `.exe` do Windows de verdade durante o
+desenvolvimento (ambiente Linux, sem Windows disponível). O que foi
+validado de verdade: o PyInstaller processa o `scripts\installer.py` sem
+erros de análise de dependências (inclusive a parte do `win32com`,
+específica do Windows) — testei isso duas vezes, antes e depois de mover o
+arquivo pra pasta `scripts/`. Também rodei o binário resultante (versão
+Linux, só pra testar a lógica) simulando a estrutura real de pastas, e
+confirmei que ele calcula corretamente a raiz do projeto a partir de onde
+o `.exe` está. O primeiro teste do `.exe` compilado
+de verdade só acontece no seu PC — se der erro, me manda a mensagem exata.
+
 ## Atualizando depois de mudanças novas
 
 **Isso é o mais importante pra quem já instalou**: quando eu (ou você)
@@ -93,28 +130,47 @@ trabalho continua funcionando igual, sem precisar recriar nada.
 
 ```
 jarvis-ia/
-├── app.py                  # API principal (FastAPI)
-├── database.py             # Persistência (SQLite — um arquivo só)
-├── llm_client.py             # Fala com o Ollama (modelo local)
-├── tools.py                   # Ferramentas: memória, comandos, Word, Linear
-├── word_control.py             # Automação do Microsoft Word (Windows only)
-├── wake_word_listener.py        # "Hey JARVIS" — ativação por voz em segundo plano
-├── apps_config.json               # Nome → comando dos apps/jogos que abrem por voz
-├── media.py                       # Processamento de áudio/vídeo
-├── embeddings.py                    # Busca semântica na memória
-├── tts.py                             # Texto pra fala (espeak-ng)
-├── start_server.bat                    # Auto-start do servidor (Agendador de Tarefas)
-├── start_wake_word.bat                  # Auto-start do wake word (Agendador de Tarefas)
-├── setup.ps1                              # Instalador — roda 1x, cria atalho na área de trabalho
-├── Instalar_JARVIS.bat                     # Duplo-clique aqui pra rodar o setup.ps1 (sem terminal)
-├── launch_jarvis.bat                       # O que o atalho executa (liga servidor + abre app)
-├── update.bat                                # Atualiza o código sem mexer no .env/memórias
-├── icon.ico                                    # Ícone do atalho
-├── static/                                # App web instalável (PWA), servido em /app
+├── Instalar_JARVIS.bat      # 1º clique: instala tudo (chama scripts/setup.ps1)
+├── Desinstalar_JARVIS.bat   # Desinstala (chama scripts/uninstall.ps1)
+├── update.bat               # Atualiza o código sem mexer no .env/memórias
+├── build_installer.bat      # Opcional: compila um .exe com ícone (scripts/installer.py)
+├── README.md
+├── LICENSE                  # MIT — outras pessoas podem usar livremente
 ├── requirements.txt
 ├── .env.example
 ├── .gitignore
-└── LICENSE                                  # MIT — outras pessoas podem usar livremente
+│
+├── app.py                   # API principal (FastAPI)
+├── database.py               # Persistência (SQLite — um arquivo só)
+├── tools.py                    # Ferramentas: memória, comandos, Word, Linear, apps
+├── llm_client.py                 # Fala com o Ollama (modelo local)
+├── media.py                        # Processamento de áudio/vídeo
+├── embeddings.py                     # Busca semântica na memória
+├── tts.py                              # Texto pra fala (espeak-ng)
+├── word_control.py                       # Automação do Microsoft Word (Windows only)
+├── wake_word_listener.py                    # "Hey JARVIS" — ativação por voz
+├── tray_app.py                                 # Ícone na bandeja do sistema
+│
+├── config/
+│   └── apps_config.json    # Nome → comando dos apps/jogos que abrem por voz
+│
+├── assets/
+│   └── icon.ico             # Ícone usado pelos atalhos
+│
+├── static/                  # App web instalável (PWA), servido em /app
+│   ├── index.html
+│   ├── manifest.json
+│   ├── icon-192.png
+│   └── icon-512.png
+│
+└── scripts/                 # Lógica interna de instalação (não mexa direto aqui)
+    ├── setup.ps1             # O que o Instalar_JARVIS.bat roda por trás
+    ├── uninstall.ps1          # O que o Desinstalar_JARVIS.bat roda por trás
+    ├── installer.py            # Mesma lógica do setup.ps1, em Python — compilável em .exe
+    ├── launch_jarvis.bat        # O que o atalho da área de trabalho executa
+    ├── start_tray.bat            # Sobe a bandeja sem nenhuma janela visível
+    ├── start_server.bat           # Rodar manualmente p/ depuração (janela visível)
+    └── start_wake_word.bat         # Rodar manualmente p/ depuração (janela visível)
 ```
 
 ## Ferramentas disponíveis
@@ -133,12 +189,12 @@ jarvis-ia/
 O `open_app` é diferente do `propose_command`: em vez do modelo tentar
 "adivinhar" o comando certo pra abrir um programa (e errar o caminho do
 executável, que varia de PC pra PC), você mesmo mapeia nome → comando uma
-vez em `apps_config.json`, e depois é só falar o nome — abre na hora, sem
+vez em `config/apps_config.json`, e depois é só falar o nome — abre na hora, sem
 pedir aprovação (abrir um programa é seguro e reversível, diferente de um
 comando genérico de terminal).
 
 ### Configurando
-Abra `apps_config.json` e ajuste os caminhos — principalmente os do Riot
+Abra `config/apps_config.json` e ajuste os caminhos — principalmente os do Riot
 Client/League/Valorant, que **não têm um link universal** e variam
 conforme onde você instalou. Pra confirmar o caminho certo no seu PC:
 clique direito no atalho → Propriedades → campo "Destino".
@@ -225,25 +281,51 @@ montagem do arquivo de áudio gravado está correta, e a comunicação com o
 servidor funciona. A parte "ao vivo" (você falando de verdade no seu
 microfone) só vai ser validada quando você rodar no seu PC.
 
-## Ligando junto com o Windows
+## Ícone na bandeja do sistema
 
-Se você já rodou o `setup.ps1` e respondeu "s" na pergunta sobre auto-start,
-isso já está configurado — pode pular esta seção.
+Em vez de janelas de terminal minimizadas, o JARVIS roda como um **ícone na
+bandeja** (perto do relógio, junto com Discord, Steam, etc) — clique direito
+nele pra:
 
-Se pulou na hora e quer ativar depois, ou prefere fazer manualmente:
+- **Abrir J.A.R.V.I.S.** — abre o app no navegador
+- **Hey JARVIS (voz)** — liga/desliga o listener de voz, com um ✓ mostrando
+  o estado atual
+- **Reiniciar servidor**
+- **Sair** — encerra tudo (servidor + voz) de vez
 
-### Via linha de comando (PowerShell como Administrador)
-```powershell
-schtasks /create /tn "JARVIS Server" /tr "C:\caminho\completo\jarvis-ia\start_server.bat" /sc onlogon
-schtasks /create /tn "JARVIS Wake Word" /tr "C:\caminho\completo\jarvis-ia\start_wake_word.bat" /sc onlogon
-```
+Nenhuma janela de console fica visível — o ícone de bandeja gerencia os
+processos por trás das cenas.
 
-### Ou pela interface gráfica
-Abra o **Agendador de Tarefas** → **Criar Tarefa Básica** → gatilho "Ao
-fazer logon" → ação "Iniciar um programa" → selecione `start_server.bat`
-(repita para `start_wake_word.bat`).
+**Pra depuração**: se algo não estiver funcionando e você quiser ver os
+logs/erros em tempo real, `scripts\start_server.bat` e
+`scripts\start_wake_word.bat` (com janela visível) continuam funcionando —
+rode-os manualmente quando precisar investigar algum problema.
 
-Depois de configurado, reinicie o PC uma vez pra confirmar que sobe sozinho.
+### Ligando junto com o Windows
+
+Se você já rodou o `Instalar_JARVIS.bat` (que chama o `scripts\setup.ps1`
+por trás) e respondeu "s"
+na pergunta sobre auto-start, isso já está configurado — pode pular esta
+seção.
+
+### Onde isso aparece e como gerenciar
+O instalador coloca **um atalho** ("J.A.R.V.I.S.") na **pasta de
+Inicialização** do Windows (`shell:startup`) — não no Agendador de Tarefas.
+Isso é de propósito: itens ali aparecem no **Gerenciador de Tarefas → aba
+"Aplicativos de inicialização"**, com ícone e nome, e um botão de
+**Habilitar/Desabilitar** direto por lá — igual qualquer outro programa que
+abre sozinho com o Windows (Steam, Discord, etc). Se quiser desligar o
+auto-start temporariamente sem desinstalar nada, é só desabilitar por ali.
+
+### Ativando manualmente depois (se pulou na instalação)
+Abra a pasta de Inicialização (`Win+R` → digite `shell:startup` → Enter) e
+crie um atalho pra `scripts\start_tray.bat` ali dentro (clique direito no
+arquivo → Enviar para → Área de trabalho, depois mova o atalho gerado pra
+essa pasta). Ou rode o `Instalar_JARVIS.bat` de novo — ele não reinstala as
+dependências se já existirem, só refaz essa parte.
+
+Depois de configurado, reinicie o PC uma vez pra confirmar que sobe
+sozinho (procure o ícone na bandeja).
 
 ## Acessando do celular
 
@@ -257,6 +339,25 @@ sem abrir porta no roteador, use **Tailscale** (gratuito):
 Com o link acima aberto no navegador do celular ou do PC: menu → "Instalar
 app" (Android/Chrome/Edge) ou compartilhar → "Adicionar à Tela de Início"
 (iPhone, precisa ser Safari).
+
+## Desinstalando
+
+**Dê duplo-clique em `Desinstalar_JARVIS.bat`** — mesmo padrão do
+instalador, sem precisar abrir PowerShell.
+
+Ele remove:
+- O atalho da área de trabalho
+- A inicialização automática com o Windows (se estava configurada)
+- Processos do JARVIS que estejam rodando no momento
+
+E pergunta (você decide, nada é apagado sem confirmar):
+- Se quer apagar suas memórias (`jarvis.db`) e configurações (`.env`) — **isso não pode ser desfeito**
+- Se quer remover o ambiente virtual Python (`venv`) — libera espaço, mas é recriado sozinho se reinstalar depois
+
+**O que ele não faz sozinho**: apagar a pasta do projeto inteira. Como o
+script roda de dentro dela, apagar a própria pasta em execução é frágil
+— ao final, ele te mostra o caminho exato pra você apagar manualmente,
+se quiser remover tudo por completo.
 
 ## Publicando no GitHub
 

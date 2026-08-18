@@ -20,7 +20,7 @@ import database as db
 import embeddings
 import word_control
 
-APPS_CONFIG_PATH = Path(__file__).parent / "apps_config.json"
+APPS_CONFIG_PATH = Path(__file__).parent / "config" / "apps_config.json"
 
 LINEAR_API_KEY = os.environ.get("LINEAR_API_KEY", "")
 LINEAR_TEAM_ID = os.environ.get("LINEAR_TEAM_ID", "")

@@ -1,0 +1,37 @@
+{
+  "_comentario": "Mapeia um nome amigável (o que você fala) pro comando real do Windows. Ações aqui rodam IMEDIATAMENTE, sem pedir aprovação — porque abrir um programa é seguro e reversível (diferente de propose_command, que é genérico e sempre precisa de confirmação). Adicione seus próprios apps livremente, seguindo o mesmo formato.",
+
+  "steam": {
+    "comando": "start steam://open/main",
+    "observacao": "URI oficial do Steam — funciona independente de onde o Steam foi instalado."
+  },
+  "discord": {
+    "comando": "start discord://",
+    "observacao": "Abre o app do Discord instalado (se o protocolo estiver registrado)."
+  },
+  "spotify": {
+    "comando": "start spotify:",
+    "observacao": "URI oficial do Spotify."
+  },
+  "chrome": {
+    "comando": "start chrome",
+    "observacao": "Funciona se o Chrome foi instalado normalmente (registro padrão do Windows)."
+  },
+  "epic games": {
+    "comando": "start com.epicgames.launcher://",
+    "observacao": "URI oficial da Epic Games Launcher."
+  },
+
+  "riot client": {
+    "comando": "start \"\" \"C:\\Riot Games\\Riot Client\\RiotClientServices.exe\"",
+    "observacao": "⚠️ AJUSTE ESTE CAMINHO — a Riot não tem um link universal (URI) documentado. O caminho acima é o padrão mais comum, mas confirme no seu PC (clique direito no atalho do Riot Client → Propriedades → veja o campo 'Destino')."
+  },
+  "league of legends": {
+    "comando": "start \"\" \"C:\\Riot Games\\Riot Client\\RiotClientServices.exe\" --launch-product=league_of_legends --launch-patchline=live",
+    "observacao": "⚠️ AJUSTE O CAMINHO igual acima. Isso abre o Riot Client já configurado pra entrar direto no League."
+  },
+  "valorant": {
+    "comando": "start \"\" \"C:\\Riot Games\\Riot Client\\RiotClientServices.exe\" --launch-product=valorant --launch-patchline=live",
+    "observacao": "⚠️ AJUSTE O CAMINHO igual acima, mesma lógica pro Valorant."
+  }
+}
