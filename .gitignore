@@ -1,0 +1,18 @@
+# Segredos — NUNCA commitar
+.env
+*.env
+
+# Banco de dados local (dados pessoais)
+*.db
+*.db-journal
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Sistema
+.DS_Store
+Thumbs.db
