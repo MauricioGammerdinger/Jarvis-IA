@@ -8,13 +8,15 @@ integração opcional com Linear).
 
 ## O que você precisa saber antes de começar
 
-Este projeto usa **Ollama** rodando um modelo aberto (recomendado: `qwen3:8b`)
-em vez do Claude/GPT/Gemini pagos. A qualidade das respostas e a confiabilidade
-do uso de ferramentas (memória, comandos, Word, Linear) é **boa, mas inferior**
-a um modelo de ponta pago — é a troca consciente por não pagar nada. Se em
-algum momento notar o JARVIS "esquecendo" de usar uma ferramenta ou
-entendendo mal um pedido, geralmente ajuda: reformular de forma mais direta,
-ou trocar pra um modelo Ollama maior (se sua GPU aguentar).
+Este projeto usa **Ollama** rodando um modelo aberto (recomendado: `gemma4`,
+que tem visão e tool-calling nativos juntos) em vez do Claude/GPT/Gemini
+pagos. A qualidade das respostas e a confiabilidade do uso de ferramentas
+(memória, comandos, Word, Linear) é **boa, mas inferior** a um modelo de
+ponta pago — é a troca consciente por não pagar nada. Se em algum momento
+notar o JARVIS "esquecendo" de usar uma ferramenta ou entendendo mal um
+pedido, geralmente ajuda: reformular de forma mais direta, ou trocar pra um
+modelo Ollama maior (se sua GPU aguentar). Se não precisar de visão
+(`ver_tela`), `qwen3:8b` é mais leve e roda mais rápido.
 
 ## Requisitos
 - Windows 10/11
@@ -27,12 +29,12 @@ ou trocar pra um modelo Ollama maior (se sua GPU aguentar).
    (ícone na bandeja do sistema).
 3. Abra o PowerShell ou Prompt de Comando e baixe o modelo recomendado:
    ```
-   ollama pull qwen3:8b
+   ollama pull gemma4
    ```
    Isso baixa uns 5-6GB — só acontece uma vez.
 4. Teste rapidamente:
    ```
-   ollama run qwen3:8b
+   ollama run gemma4
    ```
    Se abrir um chat e responder, está funcionando. Digite `/bye` pra sair.
 
@@ -65,7 +67,7 @@ você vai clicar no dia a dia.
 
 **Depois que o instalador terminar:**
 1. Abra o `.env` (criado automaticamente) e confirme/preencha `JARVIS_API_KEY`
-2. Instale o Ollama e rode `ollama pull qwen3:8b` (passo 1 acima, se ainda não fez)
+2. Instale o Ollama e rode `ollama pull gemma4` (passo 1 acima, se ainda não fez)
 3. Clique no atalho **"J.A.R.V.I.S."** na área de trabalho — ele liga o
    servidor sozinho (se ainda não estiver rodando) e abre o app no navegador
 
@@ -182,7 +184,35 @@ jarvis-ia/
 | `open_app` | Abre um app/jogo pré-configurado (Steam, Discord, League...) — **executa na hora, sem aprovação** |
 | `list_available_apps` | Lista o que já está configurado pra abrir por voz |
 | `write_word_document` | Abre o Word e escreve um documento de verdade |
+| `ver_tela` | Captura a tela e analisa visualmente (precisa de modelo com visão) |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
+
+## Visão — o JARVIS "vendo" sua tela
+
+A tool `ver_tela` tira uma captura da tela atual e manda pro modelo analisar
+de verdade — "Hey JARVIS, o que tem de errado nessa tela?" ou "descreve o
+que está aberto agora".
+
+### Requisito
+Só funciona com um modelo que tenha **suporte a visão nativo**. O padrão
+recomendado (`gemma4`) já tem isso. Modelos só-texto (como `qwen3:8b`)
+recebem a captura, mas não conseguem "enxergar" o conteúdo — o JARVIS vai
+avisar que precisa trocar de modelo se isso acontecer.
+
+### Como funciona por trás
+A tela é capturada, redimensionada (evita gastar processamento à toa numa
+imagem 4K) e comprimida em JPEG antes de ir pro modelo — testei isso de
+verdade: uma captura simulada de 3840×2160 virou 1280×720 mantendo a
+proporção, e decodificou de volta sem problema.
+
+### ⚠️ Sobre o teste
+A captura de tela em si (`PIL.ImageGrab`) não pôde ser testada com uma tela
+de verdade neste ambiente (servidor Linux sem interface gráfica) — só
+simulei com uma imagem sintética no lugar de uma captura real. O bloqueio
+de plataforma (Windows/Mac apenas) funciona corretamente. O fluxo completo
+de "modelo pede pra ver a tela → captura → imagem chega no histórico da
+conversa → modelo responde sobre o que viu" foi testado de ponta a ponta
+com a captura mockada, e funcionou certinho.
 
 ## Abrindo jogos e programas por voz
 
@@ -376,7 +406,7 @@ rodar sua própria cópia:
 git clone https://github.com/SEU-USUARIO/jarvis-ia.git
 ```
 Depois é só dar duplo-clique em `Instalar_JARVIS.bat` dentro da pasta
-clonada, e rodar `ollama pull qwen3:8b`.
+clonada, e rodar `ollama pull gemma4`.
 
 **Nota importante**: o `update.bat` só funciona se o projeto foi baixado
 via `git clone` (não um `.zip` baixado manualmente) — é o `git pull` por
@@ -386,9 +416,9 @@ início, exatamente pra ter esse caminho de atualização mais fácil.
 
 ## Limitações desta versão (comparado à versão que usava Claude)
 
-- **Sem visão** — não analisa imagens (a maioria dos modelos locais leves
-  não tem essa capacidade; dá pra trocar por um modelo com visão como
-  `llama3.2-vision` depois, se quiser, mas é mais pesado).
+- **Visão via `ver_tela` funciona, mas depende do modelo** — só com modelos
+  que tenham suporte nativo (ex: `gemma4`). Modelos só-texto recebem a
+  captura sem conseguir "ver" de verdade.
 - **Sem busca na web nativa** — esse recurso dependia de um tool exclusivo
   da Anthropic.
 - **Ferramentas menos confiáveis** — o modelo local erra mais ao decidir

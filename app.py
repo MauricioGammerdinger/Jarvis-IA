@@ -29,6 +29,7 @@ import embeddings
 import llm_client
 import media
 import tts
+import tools
 from tools import TOOLS, execute_approved_command, execute_tool
 
 load_dotenv()
@@ -44,6 +45,10 @@ Use `remember`/`recall` para memória de longo prazo. Use `propose_command` quan
 pedir uma ação real no sistema — o comando NUNCA executa na hora, fica pendente até aprovação \
 via API. Use `write_word_document` pra criar documentos do Word — confirme o conteúdo com o \
 usuário antes, a menos que ele já tenha dado o texto completo.
+
+Use `ver_tela` quando o usuário pedir pra você ver, descrever ou entender algo na tela dele. \
+Isso só funciona de verdade se o modelo carregado tiver suporte a visão (ex: gemma4) — se não \
+tiver, avise o usuário que precisa trocar de modelo pra essa função funcionar.
 
 Use `open_app` para abrir programas/jogos/plataformas JÁ CONFIGURADOS (ex: Steam, Discord, \
 League of Legends) — essa ferramenta executa IMEDIATAMENTE, sem aprovação, porque abrir um \
@@ -114,6 +119,41 @@ def _build_system_prompt(text: str) -> str:
     return f"{SYSTEM_PROMPT}\n\n<memorias_relevantes>\n{context}\n</memorias_relevantes>"
 
 
+def _execute_tool_call(call: dict, history: list[dict]) -> None:
+    """
+    Executa uma tool e adiciona o(s) resultado(s) ao histórico.
+
+    Caso especial: `ver_tela` não devolve só texto — a captura de tela vira
+    uma mensagem de imagem de verdade, pro modelo (se tiver visão) processar
+    de fato. Isso é diferente de qualquer outra tool, que só retorna texto.
+    """
+    if call["name"] == "ver_tela":
+        try:
+            image_b64 = tools.capture_screen_base64()
+            history.append({
+                "role": "tool",
+                "tool_call_id": call["id"],
+                "content": "Captura de tela realizada com sucesso. Imagem anexada a seguir.",
+            })
+            history.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "[Captura de tela solicitada pelo assistente]"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+                ],
+            })
+        except RuntimeError as e:
+            history.append({
+                "role": "tool",
+                "tool_call_id": call["id"],
+                "content": f"Não foi possível capturar a tela: {e}",
+            })
+        return
+
+    tool_result = execute_tool(call["name"], call["arguments"])
+    history.append({"role": "tool", "tool_call_id": call["id"], "content": tool_result})
+
+
 def _run_agent_turn(session_id: str, user_text: str) -> dict:
     history = db.get_history(session_id)
     history.append({"role": "user", "content": user_text})
@@ -129,12 +169,7 @@ def _run_agent_turn(session_id: str, user_text: str) -> dict:
 
         history.append(result["raw_message"])
         for call in result["tool_calls"]:
-            tool_result = execute_tool(call["name"], call["arguments"])
-            history.append({
-                "role": "tool",
-                "tool_call_id": call["id"],
-                "content": tool_result,
-            })
+            _execute_tool_call(call, history)
 
     raise HTTPException(status_code=500, detail="Limite de chamadas de ferramenta atingido.")
 
@@ -160,9 +195,8 @@ def chat_stream(req: ChatRequest, request: Request):
             if probe["tool_calls"]:
                 history.append(probe["raw_message"])
                 for call in probe["tool_calls"]:
-                    tool_result = execute_tool(call["name"], call["arguments"])
                     yield f"data: {json.dumps('[usando ' + call['name'] + '...] ')}\n\n"
-                    history.append({"role": "tool", "tool_call_id": call["id"], "content": tool_result})
+                    _execute_tool_call(call, history)
                 continue
 
             # Sem tool call: agora sim streama a resposta final de verdade.

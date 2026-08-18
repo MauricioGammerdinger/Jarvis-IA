@@ -8,13 +8,17 @@ existindo (nunca executa sozinho, sem você confirmar), só que agora é
 imediata em vez de esperar um agente separado buscar o comando.
 """
 
+import base64
+import io
 import json
 import os
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import httpx
+from PIL import Image, ImageGrab
 
 import database as db
 import embeddings
@@ -25,6 +29,29 @@ APPS_CONFIG_PATH = Path(__file__).parent / "config" / "apps_config.json"
 LINEAR_API_KEY = os.environ.get("LINEAR_API_KEY", "")
 LINEAR_TEAM_ID = os.environ.get("LINEAR_TEAM_ID", "")
 LINEAR_API_URL = "https://api.linear.app/graphql"
+
+
+def capture_screen_base64(max_width: int = 1280) -> str:
+    """
+    Tira um screenshot da tela e devolve como JPEG em base64, redimensionado
+    pra não gastar contexto/tokens à toa (uma tela 4K não precisa ir em
+    resolução total pro modelo entender o que tem nela).
+    """
+    if sys.platform not in ("win32", "darwin"):
+        raise RuntimeError(
+            "Captura de tela só é suportada no Windows ou Mac (via PIL.ImageGrab). "
+            f"Plataforma detectada: {sys.platform}."
+        )
+
+    img = ImageGrab.grab()
+    if img.width > max_width:
+        ratio = max_width / img.width
+        new_size = (max_width, int(img.height * ratio))
+        img = img.resize(new_size, Image.LANCZOS)
+
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="JPEG", quality=85)
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
 def _load_apps_config() -> dict:
@@ -115,6 +142,17 @@ TOOLS = [
     {
         "name": "list_available_apps",
         "description": "Lista os apps/jogos/plataformas já configurados e prontos pra abrir por voz.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "ver_tela",
+        "description": (
+            "Tira uma captura da tela atual do usuário e permite analisar visualmente "
+            "o que está sendo exibido. Use quando o usuário pedir pra ver, descrever, "
+            "ler ou entender algo que está na tela dele agora. Requer um modelo do "
+            "Ollama com suporte a visão (ex: gemma4) — se o modelo atual não tiver "
+            "visão, a captura funciona mas o modelo não vai conseguir 'ver' de verdade."
+        ),
         "input_schema": {"type": "object", "properties": {}},
     },
     {
