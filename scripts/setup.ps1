@@ -1,4 +1,4 @@
-# Instalador do J.A.R.V.I.S. — rode isso UMA VEZ.
+﻿# Instalador do J.A.R.V.I.S. — rode isso UMA VEZ.
 # Depois disso, use sempre o atalho criado na área de trabalho.
 # Pra atualizar o código no futuro, use update.bat (não rode este setup.ps1 de novo).
 
@@ -9,10 +9,45 @@ $ProjectDir = Split-Path $ScriptDir -Parent  # este script está em scripts/, a 
 Write-Host "=== Instalador do J.A.R.V.I.S. ===" -ForegroundColor Cyan
 Write-Host "Pasta do projeto: $ProjectDir"
 
+# Encontra um Python de verdade instalado — não confia cegamente no comando
+# "python" existir, porque no Windows sem Python instalado esse comando abre
+# um aviso da Microsoft Store em vez de dar erro claro. Testamos de verdade
+# rodando "--version" e conferindo o código de saída.
+function Find-SystemPython {
+    foreach ($candidate in @("py", "python", "python3")) {
+        try {
+            & $candidate --version *>$null
+            if ($LASTEXITCODE -eq 0) {
+                return $candidate
+            }
+        } catch {
+            continue
+        }
+    }
+    return $null
+}
+
+$PythonCmd = Find-SystemPython
+if (-not $PythonCmd) {
+    Write-Host "`nERRO: Python não foi encontrado nesta máquina." -ForegroundColor Red
+    Write-Host "   Instale em https://python.org/downloads — na primeira tela do" -ForegroundColor Red
+    Write-Host "   instalador, MARQUE a caixa 'Add python.exe to PATH' antes de instalar." -ForegroundColor Red
+    Write-Host "   Depois, rode este instalador de novo." -ForegroundColor Red
+    Read-Host "`nPressione Enter pra fechar"
+    exit 1
+}
+Write-Host "Python encontrado: $PythonCmd" -ForegroundColor Green
+
 # 1. Criar ambiente virtual Python (isolado, não mistura com outros projetos)
 if (-not (Test-Path "$ProjectDir\venv")) {
     Write-Host "`n[1/5] Criando ambiente virtual Python..." -ForegroundColor Yellow
-    python -m venv "$ProjectDir\venv"
+    & $PythonCmd -m venv "$ProjectDir\venv"
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$ProjectDir\venv\Scripts\python.exe")) {
+        Write-Host "`nERRO: falha ao criar o ambiente virtual." -ForegroundColor Red
+        Write-Host "   Confirme que o Python está instalado corretamente e tente de novo." -ForegroundColor Red
+        Read-Host "`nPressione Enter pra fechar"
+        exit 1
+    }
 } else {
     Write-Host "`n[1/5] Ambiente virtual já existe, pulando." -ForegroundColor Yellow
 }
@@ -20,6 +55,11 @@ if (-not (Test-Path "$ProjectDir\venv")) {
 # 2. Instalar dependências
 Write-Host "`n[2/5] Instalando dependências (pode demorar alguns minutos)..." -ForegroundColor Yellow
 & "$ProjectDir\venv\Scripts\pip.exe" install -r "$ProjectDir\requirements.txt"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "`nERRO: falha ao instalar dependências. Veja a mensagem acima." -ForegroundColor Red
+    Read-Host "`nPressione Enter pra fechar"
+    exit 1
+}
 
 # 3. Criar o .env se ainda não existir (nunca sobrescreve um .env já configurado)
 if (-not (Test-Path "$ProjectDir\.env")) {

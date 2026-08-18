@@ -159,17 +159,29 @@ def _run_agent_turn(session_id: str, user_text: str) -> dict:
     history.append({"role": "user", "content": user_text})
     system = _build_system_prompt(user_text)
 
-    for _ in range(6):
-        result = llm_client.chat(history, TOOLS, system)
+    try:
+        for _ in range(6):
+            result = llm_client.chat(history, TOOLS, system)
 
-        if not result["tool_calls"]:
-            db.append_message(session_id, "user", user_text)
-            db.append_message(session_id, "assistant", result["text"])
-            return {"reply": result["text"], "session_id": session_id}
+            if not result["tool_calls"]:
+                db.append_message(session_id, "user", user_text)
+                db.append_message(session_id, "assistant", result["text"])
+                return {"reply": result["text"], "session_id": session_id}
 
-        history.append(result["raw_message"])
-        for call in result["tool_calls"]:
-            _execute_tool_call(call, history)
+            history.append(result["raw_message"])
+            for call in result["tool_calls"]:
+                _execute_tool_call(call, history)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Falha ao falar com o Ollama: {e}. Confirme que ele está rodando "
+                f"('ollama list' no terminal) e que o modelo em JARVIS_MODEL (.env) "
+                f"foi baixado (ex: 'ollama pull gemma4')."
+            ),
+        )
 
     raise HTTPException(status_code=500, detail="Limite de chamadas de ferramenta atingido.")
 
@@ -188,28 +200,39 @@ def chat_stream(req: ChatRequest, request: Request):
         history.append({"role": "user", "content": req.message})
         system = _build_system_prompt(req.message)
 
-        for _ in range(6):
-            # Primeiro verifica (sem stream) se o modelo vai chamar uma tool —
-            # streaming e tool-calling juntos são frágeis em modelos locais.
-            probe = llm_client.chat(history, TOOLS, system)
-            if probe["tool_calls"]:
-                history.append(probe["raw_message"])
-                for call in probe["tool_calls"]:
-                    yield f"data: {json.dumps('[usando ' + call['name'] + '...] ')}\n\n"
-                    _execute_tool_call(call, history)
-                continue
+        try:
+            for _ in range(6):
+                # Primeiro verifica (sem stream) se o modelo vai chamar uma tool —
+                # streaming e tool-calling juntos são frágeis em modelos locais.
+                probe = llm_client.chat(history, TOOLS, system)
+                if probe["tool_calls"]:
+                    history.append(probe["raw_message"])
+                    for call in probe["tool_calls"]:
+                        yield f"data: {json.dumps('[usando ' + call['name'] + '...] ')}\n\n"
+                        _execute_tool_call(call, history)
+                    continue
 
-            # Sem tool call: agora sim streama a resposta final de verdade.
-            full_text = ""
-            for chunk in llm_client.chat_stream(history, TOOLS, system):
-                full_text += chunk
-                yield f"data: {json.dumps(chunk)}\n\n"
-            db.append_message(req.session_id, "user", req.message)
-            db.append_message(req.session_id, "assistant", full_text)
-            yield "event: done\ndata: {}\n\n"
-            return
+                # Sem tool call: agora sim streama a resposta final de verdade.
+                full_text = ""
+                for chunk in llm_client.chat_stream(history, TOOLS, system):
+                    full_text += chunk
+                    yield f"data: {json.dumps(chunk)}\n\n"
+                db.append_message(req.session_id, "user", req.message)
+                db.append_message(req.session_id, "assistant", full_text)
+                yield "event: done\ndata: {}\n\n"
+                return
 
-        yield 'event: error\ndata: {"detail": "Limite de chamadas de ferramenta atingido."}\n\n'
+            yield 'event: error\ndata: {"detail": "Limite de chamadas de ferramenta atingido."}\n\n'
+        except Exception as e:
+            # Sem isso, qualquer falha ao falar com o Ollama (não está rodando,
+            # modelo não baixado, endereço errado) derrubava a conexão sem
+            # explicação nenhuma pro navegador (aparecia só como erro de rede).
+            error_msg = (
+                f"Falha ao falar com o Ollama: {e}. Confirme que ele está rodando "
+                f"(comando 'ollama list' no terminal) e que o modelo em JARVIS_MODEL "
+                f"(.env) foi baixado (ex: 'ollama pull gemma4')."
+            )
+            yield f"event: error\ndata: {json.dumps({'detail': error_msg})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

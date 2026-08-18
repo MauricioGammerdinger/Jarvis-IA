@@ -1,4 +1,4 @@
-# Desinstalador do J.A.R.V.I.S. — desfaz o que o setup.ps1 fez.
+﻿# Desinstalador do J.A.R.V.I.S. — desfaz o que o setup.ps1 fez.
 # NÃO apaga a pasta do projeto nem seus dados por padrão — você escolhe.
 
 $ErrorActionPreference = "SilentlyContinue"  # não trava se algo já não existir (ex: tarefa não registrada)
