@@ -15,10 +15,19 @@ import os
 
 from openai import OpenAI
 
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-MODEL_NAME = os.environ.get("JARVIS_MODEL", "qwen3:8b")
+client = OpenAI(base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1"), api_key="ollama")
 
-client = OpenAI(base_url=OLLAMA_BASE_URL, api_key="ollama")  # api_key é ignorado pelo Ollama, mas o SDK exige um valor
+
+def _get_model_name() -> str:
+    """
+    Lê JARVIS_MODEL do ambiente TODA VEZ que é chamada, em vez de guardar
+    numa variável fixada na hora do import. Isso evita um bug real que já
+    aconteceu: se este módulo for importado antes do .env ser carregado
+    (load_dotenv()), uma leitura única na hora do import pegaria sempre o
+    valor padrão, ignorando o que está no .env, para sempre, até reiniciar
+    o processo inteiro com a ordem de import corrigida.
+    """
+    return os.environ.get("JARVIS_MODEL", "qwen3:8b")
 
 
 def to_openai_tool_schema(tools: list[dict]) -> list[dict]:
@@ -46,7 +55,7 @@ def chat(messages: list[dict], tools: list[dict], system: str) -> dict:
     """
     full_messages = [{"role": "system", "content": system}] + messages
     response = client.chat.completions.create(
-        model=MODEL_NAME,
+        model=_get_model_name(),
         messages=full_messages,
         tools=to_openai_tool_schema(tools) if tools else None,
     )
@@ -77,7 +86,7 @@ def chat_stream(messages: list[dict], tools: list[dict], system: str):
     """
     full_messages = [{"role": "system", "content": system}] + messages
     stream = client.chat.completions.create(
-        model=MODEL_NAME,
+        model=_get_model_name(),
         messages=full_messages,
         tools=to_openai_tool_schema(tools) if tools else None,
         stream=True,

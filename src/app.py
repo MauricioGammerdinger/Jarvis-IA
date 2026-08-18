@@ -16,6 +16,11 @@ import json
 import os
 
 from dotenv import load_dotenv
+
+load_dotenv()  # PRECISA vir antes de importar llm_client — esse módulo lê
+# JARVIS_MODEL do ambiente assim que é importado, então se o .env for
+# carregado depois, ele nunca vê o valor certo (sempre usa o padrão fixo).
+
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Header, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,8 +36,6 @@ import media
 import tts
 import tools
 from tools import TOOLS, execute_approved_command, execute_tool
-
-load_dotenv()
 
 API_KEY = os.environ.get("JARVIS_API_KEY", "")
 MAX_UPLOAD_MB = 40

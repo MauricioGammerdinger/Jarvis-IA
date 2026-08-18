@@ -170,14 +170,22 @@ jarvis-ia/
 │   └── workflows/
 │       └── ci.yml           # Checa sintaxe + instalação no Windows a cada commit
 │
-└── scripts/                 # Lógica interna de instalação (não mexa direto aqui)
-    ├── setup.ps1             # O que o Instalar_JARVIS.bat roda por trás
-    ├── uninstall.ps1          # O que o Desinstalar_JARVIS.bat roda por trás
-    ├── installer.py            # Mesma lógica do setup.ps1, em Python — compilável em .exe
-    ├── launch_jarvis.bat        # O que o atalho da área de trabalho executa
-    ├── start_tray.bat            # Sobe a bandeja sem nenhuma janela visível
-    ├── start_server.bat           # Rodar manualmente p/ depuração (janela visível)
-    └── start_wake_word.bat         # Rodar manualmente p/ depuração (janela visível)
+├── scripts/                 # Lógica interna de instalação (não mexa direto aqui)
+│   ├── setup.ps1             # O que o Instalar_JARVIS.bat roda por trás
+│   ├── uninstall.ps1          # O que o Desinstalar_JARVIS.bat roda por trás
+│   ├── installer.py            # Mesma lógica do setup.ps1, em Python — compilável em .exe
+│   ├── launch_jarvis.bat        # O que o atalho da área de trabalho executa
+│   ├── start_tray.bat            # Sobe a bandeja sem nenhuma janela visível
+│   ├── start_server.bat           # Rodar manualmente p/ depuração (janela visível)
+│   └── start_wake_word.bat         # Rodar manualmente p/ depuração (janela visível)
+│
+└── finetuning/               # Opcional: personalizar a personalidade do modelo (LoRA)
+    ├── dataset.jsonl           # Exemplos de treino (personalidade JARVIS)
+    ├── add_example.py           # Ferramenta pra adicionar exemplos facilmente
+    ├── train.py                   # Script de treino (Unsloth + LoRA)
+    ├── export_to_ollama.py         # Exporta o resultado pro Ollama
+    ├── requirements.txt             # Dependências específicas (torch, unsloth, etc)
+    └── README.md                     # Passo a passo completo
 ```
 
 **Nota técnica**: os arquivos em `src/` continuam se importando entre si
@@ -439,9 +447,16 @@ início, exatamente pra ter esse caminho de atualização mais fácil.
 - **Precisa do PC ligado** — voltamos a essa realidade ao escolher "zero custo",
   é a mesma troca que discutimos antes de decidir essa arquitetura.
 
+## Fine-tuning — dando personalidade própria ao modelo
+
+Tem uma pasta `finetuning/` com um pipeline completo de LoRA fine-tuning
+pra ensinar o JARVIS a responder com uma personalidade mais consistente
+(estilo formal, "senhor", humor seco) — veja `finetuning/README.md` pro
+passo a passo completo. É opcional e avançado; requer GPU NVIDIA com pelo
+menos 8GB de VRAM.
+
 ## Próximos passos possíveis
 - Testar modelos maiores (`qwen3:14b`) se quiser mais qualidade e sua GPU aguentar.
-- Adicionar um modelo com visão pra recuperar a análise de imagem.
 - Trocar `espeak-ng` por Piper pra voz mais natural (ainda local).
 - Se um dia quiser voltar a rodar 24/7 sem o PC ligado, a versão anterior
   (Claude + Render + Neon) continua sendo a arquitetura certa pra isso — as
