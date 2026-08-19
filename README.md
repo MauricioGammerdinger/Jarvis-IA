@@ -151,6 +151,7 @@ jarvis-ia/
 │   ├── embeddings.py                     # Busca semântica na memória
 │   ├── tts.py                              # Texto pra fala (espeak-ng)
 │   ├── word_control.py                       # Automação do Microsoft Word (Windows only)
+│   ├── google_calendar.py                      # Integração com Google Calendar
 │   ├── wake_word_listener.py                   # "Hey JARVIS" — ativação por voz
 │   └── tray_app.py                               # Ícone na bandeja do sistema
 │
@@ -174,6 +175,7 @@ jarvis-ia/
 │   ├── setup.ps1             # O que o Instalar_JARVIS.bat roda por trás
 │   ├── uninstall.ps1          # O que o Desinstalar_JARVIS.bat roda por trás
 │   ├── installer.py            # Mesma lógica do setup.ps1, em Python — compilável em .exe
+│   ├── setup_google_calendar.py  # Autorização inicial do Google Calendar (rode 1x)
 │   ├── launch_jarvis.bat        # O que o atalho da área de trabalho executa
 │   ├── start_tray.bat            # Sobe a bandeja sem nenhuma janela visível
 │   ├── start_server.bat           # Rodar manualmente p/ depuração (janela visível)
@@ -206,6 +208,7 @@ na raiz do projeto, não dentro de `src/`.
 | `list_available_apps` | Lista o que já está configurado pra abrir por voz |
 | `write_word_document` | Abre o Word e escreve um documento de verdade |
 | `ver_tela` | Captura a tela e analisa visualmente (precisa de modelo com visão) |
+| `list_calendar_events` / `create_calendar_event` | Integração com Google Calendar (opcional) |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
 ## Visão — o JARVIS "vendo" sua tela
@@ -446,6 +449,60 @@ início, exatamente pra ter esse caminho de atualização mais fácil.
   quando chamar `remember`, `propose_command` etc, comparado ao Claude.
 - **Precisa do PC ligado** — voltamos a essa realidade ao escolher "zero custo",
   é a mesma troca que discutimos antes de decidir essa arquitetura.
+
+## Integração com Google Calendar
+
+Assim como o Linear, essa integração usa a API oficial do Google — e tem um
+**pré-requisito que só você pode fazer**: criar credenciais no Google Cloud
+Console. Não tem como automatizar isso, é uma exigência de segurança do
+próprio Google pra qualquer app que acesse dados pessoais de alguém.
+
+### 1. Criar as credenciais (uma vez só, ~10-15 minutos)
+1. Acesse **console.cloud.google.com**
+2. Crie um projeto novo (qualquer nome, ex: "JARVIS")
+3. No menu, vá em **APIs e Serviços → Biblioteca**, procure **"Google
+   Calendar API"** e clique em **Ativar**
+4. Vá em **APIs e Serviços → Tela de consentimento OAuth**:
+   - Tipo de usuário: **Externo** (a menos que tenha Google Workspace)
+   - Preenche nome do app, e-mail — o resto pode deixar padrão
+   - Em "Escopos", não precisa adicionar nada manualmente
+   - Em "Usuários de teste", adiciona seu próprio e-mail do Google
+5. Vá em **APIs e Serviços → Credenciais → Criar Credenciais → ID do
+   cliente OAuth**:
+   - Tipo de aplicativo: **App para computador (Desktop app)**
+   - Nome: qualquer um
+6. Depois de criar, clica em **Baixar JSON** — isso baixa um arquivo
+7. Renomeia esse arquivo pra `credentials.json` e coloca na **raiz** do
+   projeto (do lado do `.env`)
+
+### 2. Autorizar (uma vez só)
+```bash
+python scripts/setup_google_calendar.py
+```
+Isso abre o navegador, você loga na sua conta Google e autoriza. Depois
+disso, salva um `token.json` na raiz — o JARVIS usa esse arquivo sozinho
+dali em diante, sem abrir navegador de novo (a menos que expire, aí ele
+renova sozinho).
+
+### 3. Usar
+```
+"Hey JARVIS, o que eu tenho na agenda?"
+"Hey JARVIS, marca uma reunião amanhã às 15h"
+```
+
+### Segurança
+`credentials.json` e `token.json` **nunca são commitados** (já protegidos
+no `.gitignore`) — testei isso de verdade, criando os dois arquivos e
+confirmando com `git status` que nenhum aparece pra commit. O `token.json`
+em especial dá acesso direto ao seu calendário — trate como uma senha.
+
+### ⚠️ Sobre o teste
+Não tenho como gerar credenciais reais do Google nem abrir navegador aqui —
+o fluxo de autorização (OAuth) só valida no seu PC. O que testei de
+verdade: a lógica de criação de evento (cálculo de horário de início/fim
+a partir da duração) com a API do Google mockada, e o comportamento de
+"calendário não configurado ainda" avisando com clareza em vez de inventar
+eventos.
 
 ## Fine-tuning — dando personalidade própria ao modelo
 

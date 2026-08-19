@@ -1,6 +1,8 @@
 # Segredos — NUNCA commitar
 .env
 *.env
+credentials.json
+token.json
 
 # Banco de dados local (dados pessoais)
 *.db

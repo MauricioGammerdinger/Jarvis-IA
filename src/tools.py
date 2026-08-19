@@ -22,6 +22,7 @@ from PIL import Image, ImageGrab
 
 import database as db
 import embeddings
+import google_calendar
 import word_control
 
 APPS_CONFIG_PATH = Path(__file__).parent.parent / "config" / "apps_config.json"  # tools.py agora está em src/, config/ fica na raiz
@@ -65,43 +66,71 @@ def _load_apps_config() -> dict:
 TOOLS = [
     {
         "name": "remember",
-        "description": "Salva um fato ou preferência importante sobre o usuário na memória de longo prazo.",
+        "description": (
+            "Salva um fato, preferência ou informação pessoal do usuário na memória de "
+            "longo prazo, pra lembrar em conversas futuras (mesmo depois de reiniciar o "
+            "JARVIS). USE quando o usuário disser algo como 'lembra que...', 'anota que...', "
+            "'não esquece que...', ou mencionar uma preferência/fato sobre si mesmo de forma "
+            "natural (ex: 'eu prefiro café sem açúcar', 'meu aniversário é dia X'). "
+            "NÃO use pra fatos genéricos sem relação com o usuário, nem pra pedidos de ação "
+            "(isso não é uma lista de tarefas, é memória de longo prazo)."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "content": {"type": "string", "description": "O fato a lembrar."},
-                "category": {"type": "string", "description": "Categoria (pessoal, preferencia, projeto...)."},
+                "content": {
+                    "type": "string",
+                    "description": "O fato a lembrar, escrito de forma clara e independente de contexto (ex: 'Usuário prefere café sem açúcar', não só 'sem açúcar').",
+                },
+                "category": {"type": "string", "description": "Categoria (pessoal, preferencia, projeto, trabalho...)."},
             },
             "required": ["content"],
         },
     },
     {
         "name": "recall",
-        "description": "Busca na memória de longo prazo por informações relevantes.",
+        "description": (
+            "Busca na memória de longo prazo por informações relevantes já salvas antes. "
+            "USE sempre que o usuário perguntar algo que dependa de contexto pessoal dele "
+            "(ex: 'o que eu prefiro?', 'você lembra do meu projeto X?', 'qual é minha "
+            "preferência de Y?'), ou quando não tiver certeza se já sabe algo sobre o "
+            "usuário e a resposta poderia mudar dependendo disso. Prefira chamar recall a "
+            "assumir/inventar uma informação sobre o usuário que você não tem certeza."
+        ),
         "input_schema": {
             "type": "object",
-            "properties": {"query": {"type": "string", "description": "Termos de busca."}},
+            "properties": {"query": {"type": "string", "description": "Termos de busca, focados no assunto (ex: 'café' ou 'preferências de bebida')."}},
             "required": ["query"],
         },
     },
     {
         "name": "get_datetime",
-        "description": "Retorna a data e hora atuais.",
+        "description": (
+            "Retorna a data e hora atuais do sistema. USE sempre que o usuário perguntar "
+            "'que horas são', 'que dia é hoje', ou quando precisar saber a data/hora atual "
+            "pra responder algo corretamente (ex: calcular quanto falta pra um evento). "
+            "NÃO tente adivinhar a data/hora sozinho — sempre chame essa tool pra ter "
+            "certeza, já que você não tem noção de tempo real sem ela."
+        ),
         "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "propose_command",
         "description": (
-            "Propõe um comando de terminal para ser executado NESTE computador. NÃO executa "
-            "na hora — cria um pedido pendente que precisa ser aprovado via API "
-            "(POST /commands/{id}/approve) antes de rodar. Use pra ações reais no sistema "
-            "(listar arquivos, rodar script, abrir programa, etc)."
+            "Propõe um comando de terminal genérico pra ser executado NESTE computador — "
+            "NÃO executa na hora, cria um pedido pendente que precisa ser aprovado pelo "
+            "usuário antes de rodar. USE pra ações no sistema que NÃO estão cobertas por "
+            "outra tool mais específica (ex: listar arquivos de uma pasta, rodar um script "
+            "próprio, mover/renomear arquivo, verificar espaço em disco). "
+            "NÃO use pra abrir programas já configurados em apps_config.json — pra isso, "
+            "use `open_app`, que é mais direto e não precisa de aprovação. Só caia aqui se "
+            "`open_app` não cobrir o pedido."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "command": {"type": "string", "description": "O comando de shell proposto."},
-                "explicacao": {"type": "string", "description": "O que esse comando faz, em português simples."},
+                "command": {"type": "string", "description": "O comando de shell proposto, exato como seria digitado no terminal."},
+                "explicacao": {"type": "string", "description": "O que esse comando faz, em português simples, pro usuário entender antes de aprovar."},
             },
             "required": ["command", "explicacao"],
         },
@@ -111,8 +140,11 @@ TOOLS = [
         "description": (
             "Abre o Microsoft Word e cria um novo documento com o conteúdo fornecido, salvando "
             "na pasta Documentos (ou outra pasta especificada). Só funciona no Windows com Word "
-            "instalado. AÇÃO REAL — confirme o conteúdo com o usuário antes de chamar, a menos "
-            "que ele já tenha dado o texto completo explicitamente."
+            "instalado. USE quando o usuário pedir explicitamente pra 'escrever um documento', "
+            "'criar um Word', 'anotar isso no Word', etc — não use pra qualquer texto genérico, "
+            "só quando o pedido for especificamente sobre um documento do Word. "
+            "AÇÃO REAL E VISÍVEL (abre o Word na tela) — confirme o conteúdo com o usuário antes "
+            "de chamar, a menos que ele já tenha ditado o texto completo explicitamente."
         ),
         "input_schema": {
             "type": "object",
@@ -126,45 +158,62 @@ TOOLS = [
     {
         "name": "open_app",
         "description": (
-            "Abre um programa/plataforma pré-configurado (ex: Steam, Discord, League of Legends). "
-            "Executa IMEDIATAMENTE, sem precisar de aprovação — só funciona para apps já cadastrados "
-            "em apps_config.json. Se o app pedido não estiver na lista, informe ao usuário que ele "
-            "precisa ser adicionado no arquivo de configuração primeiro."
+            "Abre um programa/jogo/plataforma pré-configurado (ex: Steam, Discord, League of "
+            "Legends, Chrome). Executa IMEDIATAMENTE, sem precisar de aprovação — é a forma "
+            "PREFERIDA de abrir qualquer programa que esteja na lista configurada. USE sempre "
+            "que o usuário disser 'abre o/a X' e X for um programa/jogo comum. Se não tiver "
+            "certeza se está configurado, chame primeiro `list_available_apps`. Só use "
+            "`propose_command` pra abrir algo se esse app não estiver na lista."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "app_name": {"type": "string", "description": "Nome do app/jogo/plataforma a abrir."},
+                "app_name": {"type": "string", "description": "Nome do app/jogo/plataforma a abrir, como o usuário falou."},
             },
             "required": ["app_name"],
         },
     },
     {
         "name": "list_available_apps",
-        "description": "Lista os apps/jogos/plataformas já configurados e prontos pra abrir por voz.",
+        "description": (
+            "Lista os apps/jogos/plataformas já configurados e prontos pra abrir por voz via "
+            "`open_app`. USE quando o usuário perguntar 'quais apps você consegue abrir' ou "
+            "quando você não tiver certeza se um app específico está configurado antes de "
+            "tentar abrir com `open_app`."
+        ),
         "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "ver_tela",
         "description": (
-            "Tira uma captura da tela atual do usuário e permite analisar visualmente "
-            "o que está sendo exibido. Use quando o usuário pedir pra ver, descrever, "
-            "ler ou entender algo que está na tela dele agora. Requer um modelo do "
-            "Ollama com suporte a visão (ex: gemma4) — se o modelo atual não tiver "
-            "visão, a captura funciona mas o modelo não vai conseguir 'ver' de verdade."
+            "Tira uma captura da tela atual do usuário e permite analisar visualmente o que "
+            "está sendo exibido. USE quando o usuário pedir pra 'ver', 'olhar', 'descrever', "
+            "'ler' ou entender algo que está na tela dele agora (ex: 'o que tem nessa janela?', "
+            "'lê esse erro pra mim', 'o que você está vendo?'). Requer um modelo do Ollama com "
+            "suporte a visão (ex: gemma4) — se o modelo atual não tiver visão, a captura "
+            "funciona mas você não vai conseguir 'ver' de verdade; nesse caso, avise o usuário "
+            "com clareza em vez de inventar o que estaria na tela."
         ),
         "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "list_linear_teams",
-        "description": "Lista os times do Linear disponíveis, com seus IDs.",
+        "description": (
+            "Lista os times do Linear disponíveis, com seus IDs. USE antes de "
+            "`create_linear_issue` se você não souber o team_id certo, ou se o usuário "
+            "não especificar em qual time criar a issue."
+        ),
         "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "create_linear_issue",
         "description": (
-            "Cria uma issue de verdade no Linear. AÇÃO REAL — mostre título/descrição/time "
-            "ao usuário e espere confirmação explícita antes de chamar."
+            "Cria uma issue de verdade no Linear — AÇÃO REAL E IRREVERSÍVEL (não dá pra "
+            "desfazer automaticamente). REGRA OBRIGATÓRIA: antes de chamar essa tool, mostre "
+            "ao usuário em texto normal o título, a descrição e o time que você vai usar, e "
+            "espere a confirmação explícita dele numa mensagem seguinte. NUNCA chame essa "
+            "tool na mesma resposta em que você descreve o plano — só depois do usuário "
+            "confirmar."
         ),
         "input_schema": {
             "type": "object",
@@ -174,6 +223,40 @@ TOOLS = [
                 "team_id": {"type": "string", "description": "ID do time. Se omitido, usa o padrão configurado."},
             },
             "required": ["title"],
+        },
+    },
+    {
+        "name": "list_calendar_events",
+        "description": (
+            "Lista os próximos eventos do Google Calendar do usuário. USE quando o usuário "
+            "perguntar 'o que eu tenho hoje', 'minha agenda', 'meus próximos compromissos', "
+            "etc. Requer que o Google Calendar já tenha sido configurado (veja o README) — "
+            "se não estiver, a tool avisa isso claramente em vez de inventar eventos."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "quantidade": {"type": "integer", "description": "Quantos eventos listar (padrão: 10)."},
+            },
+        },
+    },
+    {
+        "name": "create_calendar_event",
+        "description": (
+            "Cria um evento novo no Google Calendar do usuário — AÇÃO REAL. REGRA OBRIGATÓRIA: "
+            "confirme título, data/hora e duração com o usuário antes de chamar essa tool, na "
+            "mensagem anterior, e só chame depois de confirmação explícita. Use `get_datetime` "
+            "primeiro se precisar calcular uma data relativa (ex: 'amanhã às 15h')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Título do evento."},
+                "start_iso": {"type": "string", "description": "Data/hora de início em formato ISO, ex: '2026-08-20T14:00:00'."},
+                "duration_minutes": {"type": "integer", "description": "Duração em minutos (padrão: 60)."},
+                "description": {"type": "string", "description": "Descrição opcional do evento."},
+            },
+            "required": ["title", "start_iso"],
         },
     },
 ]
@@ -233,7 +316,47 @@ def execute_tool(name: str, tool_input: dict) -> str:
             team_id=tool_input.get("team_id") or LINEAR_TEAM_ID,
         )
 
+    if name == "list_calendar_events":
+        return _list_calendar_events(tool_input.get("quantidade", 10))
+
+    if name == "create_calendar_event":
+        return _create_calendar_event(
+            title=tool_input["title"],
+            start_iso=tool_input["start_iso"],
+            duration_minutes=tool_input.get("duration_minutes", 60),
+            description=tool_input.get("description", ""),
+        )
+
     return f"Ferramenta desconhecida: {name}"
+
+
+def _list_calendar_events(quantidade: int) -> str:
+    if not google_calendar.is_configured():
+        return (
+            "Google Calendar ainda não foi configurado. Rode "
+            "'python scripts/setup_google_calendar.py' primeiro (veja o README)."
+        )
+    try:
+        events = google_calendar.list_upcoming_events(max_results=quantidade)
+    except Exception as e:
+        return f"Erro ao acessar o Google Calendar: {e}"
+
+    if not events:
+        return "Nenhum evento próximo encontrado."
+    return "\n".join(f"- {e['titulo']} ({e['inicio']} até {e['fim']})" for e in events)
+
+
+def _create_calendar_event(title: str, start_iso: str, duration_minutes: int, description: str) -> str:
+    if not google_calendar.is_configured():
+        return (
+            "Google Calendar ainda não foi configurado. Rode "
+            "'python scripts/setup_google_calendar.py' primeiro (veja o README)."
+        )
+    try:
+        result = google_calendar.create_event(title, start_iso, duration_minutes, description)
+    except Exception as e:
+        return f"Erro ao criar evento no Google Calendar: {e}"
+    return f"Evento '{title}' criado com sucesso. Link: {result['link']}"
 
 
 def execute_approved_command(command: str) -> tuple[str, str]:
