@@ -177,8 +177,12 @@ def _run_agent_turn(session_id: str, user_text: str) -> dict:
     history.append({"role": "user", "content": user_text})
     system = _build_system_prompt(user_text)
 
+    # 20, não 6: tarefas com ver_tela + clicar_na_tela consomem vários passos
+    # (cada clique costuma exigir um ver_tela antes E depois pra confirmar).
+    MAX_TOOL_ITERATIONS = 20
+
     try:
-        for _ in range(6):
+        for _ in range(MAX_TOOL_ITERATIONS):
             result = llm_client.chat(history, TOOLS, system)
 
             if not result["tool_calls"]:
@@ -201,7 +205,14 @@ def _run_agent_turn(session_id: str, user_text: str) -> dict:
             ),
         )
 
-    raise HTTPException(status_code=500, detail="Limite de chamadas de ferramenta atingido.")
+    raise HTTPException(
+        status_code=500,
+        detail=(
+            f"Limite de {MAX_TOOL_ITERATIONS} chamadas de ferramenta atingido nesta resposta. "
+            f"Tente pedir a tarefa em partes menores (ex: primeiro 'abre a Steam', depois "
+            f"'agora clica em Biblioteca', em mensagens separadas)."
+        ),
+    )
 
 
 @app.post("/chat", dependencies=[Depends(require_api_key)])
@@ -218,8 +229,11 @@ def chat_stream(req: ChatRequest, request: Request):
         history.append({"role": "user", "content": req.message})
         system = _build_system_prompt(req.message)
 
+        # 20, não 6: tarefas com ver_tela + clicar_na_tela consomem vários passos.
+        MAX_TOOL_ITERATIONS = 20
+
         try:
-            for _ in range(6):
+            for _ in range(MAX_TOOL_ITERATIONS):
                 # Primeiro verifica (sem stream) se o modelo vai chamar uma tool —
                 # streaming e tool-calling juntos são frágeis em modelos locais.
                 probe = llm_client.chat(history, TOOLS, system)
@@ -240,7 +254,11 @@ def chat_stream(req: ChatRequest, request: Request):
                 yield "event: done\ndata: {}\n\n"
                 return
 
-            yield 'event: error\ndata: {"detail": "Limite de chamadas de ferramenta atingido."}\n\n'
+            error_detail = (
+                f"Limite de {MAX_TOOL_ITERATIONS} chamadas de ferramenta atingido nesta "
+                f"resposta. Tente pedir a tarefa em partes menores."
+            )
+            yield f"event: error\ndata: {json.dumps({'detail': error_detail})}\n\n"
         except Exception as e:
             # Sem isso, qualquer falha ao falar com o Ollama (não está rodando,
             # modelo não baixado, endereço errado) derrubava a conexão sem
