@@ -164,6 +164,7 @@ jarvis-ia/
 │   ├── tts.py                              # Texto pra fala (espeak-ng)
 │   ├── word_control.py                       # Automação do Microsoft Word (Windows only)
 │   ├── google_calendar.py                      # Integração com Google Calendar
+│   ├── mouse_control.py                          # Controle de mouse/teclado (clicar, digitar)
 │   ├── wake_word_listener.py                   # "Hey JARVIS" — ativação por voz
 │   └── tray_app.py                               # Ícone na bandeja do sistema
 │
@@ -220,6 +221,7 @@ na raiz do projeto, não dentro de `src/`.
 | `list_available_apps` | Lista o que já está configurado pra abrir por voz |
 | `write_word_document` | Abre o Word e escreve um documento de verdade |
 | `ver_tela` | Captura a tela e analisa visualmente (precisa de modelo com visão) |
+| `clicar_na_tela` / `digitar_texto` / `pressionar_tecla` | Controle de mouse/teclado — **AÇÃO REAL, veja avisos abaixo** |
 | `list_calendar_events` / `create_calendar_event` | Integração com Google Calendar (opcional) |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
@@ -249,6 +251,51 @@ de plataforma (Windows/Mac apenas) funciona corretamente. O fluxo completo
 de "modelo pede pra ver a tela → captura → imagem chega no histórico da
 conversa → modelo responde sobre o que viu" foi testado de ponta a ponta
 com a captura mockada, e funcionou certinho.
+
+## Controle de mouse e teclado — o JARVIS "agindo" na tela
+
+Além de "ver" a tela, o JARVIS pode **interagir** com o que vê: clicar em
+algo, digitar texto, navegar dentro de um programa já aberto (ex: "entra
+na Steam e abre esse jogo"). É basicamente o mesmo princípio por trás do
+"Computer Use" do Claude — captura de tela → o modelo decide onde
+clicar → clique de verdade.
+
+### ⚠️ Isso é mais poderoso — e mais arriscado — que qualquer outra tool
+
+Diferente de `open_app` (só abre programas pré-configurados) ou
+`propose_command` (precisa de aprovação antes de rodar), o controle de
+mouse/teclado age **imediatamente**, em **qualquer coisa visível na
+tela** — incluindo botões de compra, exclusão, envio de mensagem, etc.
+Não existe uma lista de "coisas seguras pra clicar", é a tela inteira.
+
+**Recomendações de uso:**
+- Peça tarefas específicas e bem definidas ("abre o jogo X na Steam"), não
+  comandos vagos ("mexe no meu PC")
+- Fique de olho na tela enquanto ele executa, principalmente nas primeiras
+  vezes usando essa função
+- Se algo parecer estar indo errado, você sempre pode assumir o controle
+  do mouse/teclado manualmente a qualquer momento — não existe um "modo
+  exclusivo" que trave seu controle
+
+### Como funciona por trás (resolvendo um problema técnico real)
+O `ver_tela` redimensiona a captura antes de mandar pro modelo (economia
+de processamento) — então as coordenadas que o modelo "vê" na imagem NÃO
+são as coordenadas reais da tela. O `clicar_na_tela` converte isso
+automaticamente: guarda a proporção de redimensionamento de cada captura,
+e escala o clique de volta pra posição real. **Testei essa conversão com
+matemática exata**: uma captura simulada de 1920×1080 redimensionada pra
+1280×720, clicando no "centro" da imagem pequena (640,360), converteu
+corretamente pro centro real da tela (960,540) — testei os dois cantos
+também, batendo exatamente.
+
+### ⚠️ Sobre o teste
+O clique/digitação de verdade **não pôde ser testado com mouse/teclado
+reais** (ambiente sem interface gráfica) — usei `pyautogui` mockado pra
+validar a lógica. O que testei de verdade: a matemática de conversão de
+coordenadas (a parte mais crítica de estar certa) e o fluxo completo
+captura → escala salva → clique convertido, ponta a ponta. O primeiro
+teste com mouse/teclado reais só acontece no seu PC — recomendo começar
+com tarefas simples e de baixo risco pra ganhar confiança.
 
 ## Abrindo jogos e programas por voz
 
