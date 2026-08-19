@@ -75,6 +75,29 @@ def _find_ollama() -> bool:
         return False
 
 
+def _get_recommended_model() -> str:
+    """
+    Detecta a GPU via nvidia-smi e recomenda um modelo que caiba nela — evita
+    o problema comum de alguém baixar um modelo grande demais pra placa que tem.
+    """
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            vram_mb = int(result.stdout.strip().splitlines()[0])
+            if vram_mb >= 8000:
+                print(f"      -> GPU NVIDIA com {vram_mb / 1024:.1f}GB de VRAM detectada.")
+                return "gemma4"
+            print(f"      -> GPU NVIDIA detectada, mas com pouca VRAM ({vram_mb / 1024:.1f}GB).")
+    except (FileNotFoundError, OSError, ValueError, IndexError):
+        print("      -> Nenhuma GPU NVIDIA detectada (ou driver não instalado).")
+    return "qwen3:4b"
+
+
 def main() -> None:
     print("=== Instalador do J.A.R.V.I.S. ===")
     print(f"Pasta do projeto: {PROJECT_DIR}\n")
@@ -113,9 +136,28 @@ def main() -> None:
     env_path = PROJECT_DIR / ".env"
     env_example_path = PROJECT_DIR / ".env.example"
     if not env_path.exists():
-        print("\n[3/5] Criando .env a partir do modelo...")
-        env_path.write_text(env_example_path.read_text(encoding="utf-8"), encoding="utf-8")
-        print("      -> Abra o .env e preencha JARVIS_API_KEY antes de usar!")
+        print("\n[3/5] Configurando o .env automaticamente...")
+
+        recommended_model = _get_recommended_model()
+        print(f"      -> Modelo recomendado pra essa máquina: {recommended_model}")
+
+        env_content = env_example_path.read_text(encoding="utf-8")
+        env_content = env_content.replace("JARVIS_MODEL=gemma4", f"JARVIS_MODEL={recommended_model}")
+        env_path.write_text(env_content, encoding="utf-8")
+
+        print(f"      -> .env criado com modelo '{recommended_model}'. Chave padrão: secreta123")
+        print("      -> Isso é adequado só pra uso local/privado. Se um dia expuser o servidor")
+        print("         pra fora (Tailscale, etc), troque por uma chave forte no .env.")
+
+        if _find_ollama():
+            resposta = input(
+                f"\nBaixar o modelo '{recommended_model}' agora? Pode demorar alguns minutos (s/n): "
+            ).strip().lower()
+            if resposta == "s":
+                print(f"Baixando {recommended_model} — acompanhe o progresso abaixo...")
+                subprocess.run(["ollama", "pull", recommended_model])
+            else:
+                print(f"Pulado. Rode 'ollama pull {recommended_model}' manualmente antes de usar o JARVIS.")
     else:
         print("\n[3/5] .env já existe, mantendo suas configurações atuais.")
 

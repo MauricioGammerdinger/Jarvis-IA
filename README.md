@@ -55,9 +55,15 @@ nem digitar nenhum comando. Uma janela abre sozinha e faz tudo:
 
 1. Cria um ambiente Python isolado
 2. Instala todas as dependências
-3. Cria o `.env` (se ainda não existir)
-4. Cria um atalho **"J.A.R.V.I.S."** na área de trabalho, com ícone
-5. Pergunta se você quer que ele ligue sozinho com o Windows (`s`/`n`)
+3. **Cria o `.env` sozinho** — detecta sua GPU automaticamente (via
+   `nvidia-smi`) e já escolhe o modelo certo pra sua máquina (`gemma4` se
+   tiver GPU NVIDIA com 8GB+ de VRAM, `qwen3:4b` — mais leve — caso
+   contrário), além de gerar uma `JARVIS_API_KEY` forte sozinho. Você não
+   precisa editar nada manualmente pra começar a usar.
+4. Se o Ollama já estiver instalado, **oferece baixar o modelo recomendado
+   na hora** (`s`/`n`) — não precisa lembrar de rodar `ollama pull` depois
+5. Cria um atalho **"J.A.R.V.I.S."** na área de trabalho, com ícone
+6. Pergunta se você quer que ele ligue sozinho com o Windows (`s`/`n`)
 
 **Nota sobre o ícone**: o `Instalar_JARVIS.bat` em si usa o ícone padrão do
 Windows pra `.bat` (não dá pra mudar isso — limitação do formato, não falta
@@ -66,10 +72,16 @@ que ele cria na área de trabalho, esse sim tem o ícone certo, e é o que
 você vai clicar no dia a dia.
 
 **Depois que o instalador terminar:**
-1. Abra o `.env` (criado automaticamente) e confirme/preencha `JARVIS_API_KEY`
-2. Instale o Ollama e rode `ollama pull gemma4` (passo 1 acima, se ainda não fez)
-3. Clique no atalho **"J.A.R.V.I.S."** na área de trabalho — ele liga o
+1. Se você pulou o download automático do modelo no passo 4, instale o
+   Ollama (se ainda não tiver) e rode `ollama pull <modelo>` manualmente
+   (o nome exato aparece no `.env`, campo `JARVIS_MODEL`)
+2. Clique no atalho **"J.A.R.V.I.S."** na área de trabalho — ele liga o
    servidor sozinho (se ainda não estiver rodando) e abre o app no navegador
+
+**Se quiser trocar o modelo depois** (por exemplo, testar o `gemma4:26b` se
+tiver uma GPU bem potente), é só editar `JARVIS_MODEL` no `.env` manualmente
+e reiniciar o JARVIS — a detecção automática só acontece na primeira vez
+que o `.env` é criado.
 
 ### Rodando manualmente, sem o instalador (alternativa)
 ```powershell

@@ -92,9 +92,47 @@ if ($LASTEXITCODE -ne 0) {
 
 # 3. Criar o .env se ainda não existir (nunca sobrescreve um .env já configurado)
 if (-not (Test-Path "$ProjectDir\.env")) {
-    Write-Host "`n[3/5] Criando .env a partir do modelo..." -ForegroundColor Yellow
-    Copy-Item "$ProjectDir\.env.example" "$ProjectDir\.env"
-    Write-Host "     -> Abra o .env e preencha JARVIS_API_KEY antes de usar!" -ForegroundColor Red
+    Write-Host "`n[3/5] Configurando o .env automaticamente..." -ForegroundColor Yellow
+
+    # Detecta a GPU pra recomendar o modelo certo sozinho -- evita o problema
+    # comum de alguém baixar um modelo grande demais pra placa que tem.
+    $RecommendedModel = "qwen3:4b"  # padrão seguro: roda em qualquer PC, mesmo sem GPU dedicada
+    try {
+        $vramOutput = & nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>$null
+        if ($LASTEXITCODE -eq 0 -and $vramOutput) {
+            $vramMB = [int]($vramOutput -replace '[^\d]', '')
+            if ($vramMB -ge 8000) {
+                $RecommendedModel = "gemma4"
+                Write-Host "     -> GPU NVIDIA com $([math]::Round($vramMB/1024,1))GB de VRAM detectada." -ForegroundColor Green
+            } else {
+                Write-Host "     -> GPU NVIDIA detectada, mas com pouca VRAM ($([math]::Round($vramMB/1024,1))GB)." -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "     -> Nenhuma GPU NVIDIA detectada (ou driver não instalado)." -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "     -> Não foi possível detectar a GPU automaticamente." -ForegroundColor Yellow
+    }
+    Write-Host "     -> Modelo recomendado pra essa máquina: $RecommendedModel" -ForegroundColor Green
+
+    $envContent = Get-Content "$ProjectDir\.env.example" -Raw
+    $envContent = $envContent -replace 'JARVIS_MODEL=gemma4', "JARVIS_MODEL=$RecommendedModel"
+    Set-Content -Path "$ProjectDir\.env" -Value $envContent -NoNewline
+
+    Write-Host "     -> .env criado com modelo '$RecommendedModel'. Chave padrão: secreta123" -ForegroundColor Green
+    Write-Host "     -> Isso é adequado só pra uso local/privado. Se um dia expuser o servidor" -ForegroundColor Gray
+    Write-Host "        pra fora (Tailscale, etc), troque por uma chave forte no .env." -ForegroundColor Gray
+
+    # Oferece baixar o modelo recomendado na hora, se o Ollama já estiver instalado
+    if (Find-Ollama) {
+        $baixarAgora = Read-Host "`nBaixar o modelo '$RecommendedModel' agora? Pode demorar alguns minutos (s/n)"
+        if ($baixarAgora -eq "s") {
+            Write-Host "Baixando $RecommendedModel — acompanhe o progresso abaixo..." -ForegroundColor Yellow
+            & ollama pull $RecommendedModel
+        } else {
+            Write-Host "Pulado. Rode 'ollama pull $RecommendedModel' manualmente antes de usar o JARVIS." -ForegroundColor Gray
+        }
+    }
 } else {
     Write-Host "`n[3/5] .env já existe, mantendo suas configurações atuais." -ForegroundColor Yellow
 }
