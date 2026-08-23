@@ -16,4 +16,5 @@ Pillow>=10.0.0
 google-auth-oauthlib>=1.2.0
 google-api-python-client>=2.100.0
 pyautogui>=0.9.54
+python-kasa>=0.10.0
 pywin32>=306; sys_platform == "win32"

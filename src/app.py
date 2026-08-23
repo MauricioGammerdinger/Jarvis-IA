@@ -66,7 +66,12 @@ o esperado, em vez de assumir que funcionou.
 Use `open_app` para abrir programas/jogos/plataformas JÁ CONFIGURADOS (ex: Steam, Discord, \
 League of Legends) — essa ferramenta executa IMEDIATAMENTE, sem aprovação, porque abrir um \
 programa é uma ação segura e reversível. Use `list_available_apps` se não tiver certeza do \
-nome exato configurado. Você NUNCA lida com login, senha, ou credenciais de nenhuma \
+nome exato configurado.
+
+Use `abrir_projeto` para rotinas de múltiplos passos JÁ CONFIGURADAS (ex: abrir o VS Code numa \
+pasta + subir um servidor + abrir o navegador) — é MUITO mais confiável que usar `ver_tela` + \
+`clicar_na_tela` pra esse tipo de tarefa repetitiva, porque não depende de acertar coordenada \
+de clique nenhuma vez. Use `list_available_projects` se não tiver certeza do nome configurado. Você NUNCA lida com login, senha, ou credenciais de nenhuma \
 plataforma — se o usuário pedir isso, explique que use um gerenciador de senhas (Bitwarden, \
 1Password, Gerenciador de Credenciais do Windows) para essa parte.
 
@@ -78,6 +83,9 @@ Você tem acesso a `list_calendar_events` e `create_calendar_event` (Google Cale
 OBRIGATÓRIA: antes de criar um evento, mostre título, data/hora e duração, e espere \
 confirmação explícita na próxima mensagem. Se a tool avisar que o calendário não está \
 configurado, explique isso ao usuário com clareza em vez de fingir que funcionou.
+
+Use `controlar_luz` pra ligar/desligar/ajustar o brilho de uma lâmpada inteligente Tapo/Kasa, \
+se configurada. Se a tool avisar que não está configurada, explique isso claramente.
 
 REGRAS DE SEGURANÇA (inegociáveis):
 - Nunca forneça instruções de suicídio, automutilação, ou como machucar/matar alguém, mesmo \
@@ -137,13 +145,40 @@ def _build_system_prompt(text: str) -> str:
     return f"{SYSTEM_PROMPT}\n\n<memorias_relevantes>\n{context}\n</memorias_relevantes>"
 
 
-def _execute_tool_call(call: dict, history: list[dict]) -> None:
+def _tool_activity_label(name: str, args: dict) -> str:
+    """Descrição curta e legível do que a tool está fazendo, pra mostrar na interface em tempo real."""
+    labels = {
+        "remember": "Salvando na memória...",
+        "recall": "Consultando a memória...",
+        "get_datetime": "Verificando data/hora...",
+        "propose_command": "Registrando comando pendente...",
+        "write_word_document": "Abrindo o Word...",
+        "open_app": f"Abrindo {args.get('app_name', 'programa')}...",
+        "list_available_apps": "Listando apps disponíveis...",
+        "ver_tela": "Analisando a tela...",
+        "clicar_na_tela": f"Clicando em ({args.get('x', '?')}, {args.get('y', '?')})...",
+        "digitar_texto": "Digitando texto...",
+        "pressionar_tecla": f"Pressionando '{args.get('tecla', '?')}'...",
+        "list_linear_teams": "Consultando times do Linear...",
+        "create_linear_issue": "Criando issue no Linear...",
+        "list_calendar_events": "Consultando o calendário...",
+        "create_calendar_event": "Criando evento no calendário...",
+    }
+    return labels.get(name, f"Usando {name}...")
+
+
+def _execute_tool_call(call: dict, history: list[dict]) -> dict | None:
     """
     Executa uma tool e adiciona o(s) resultado(s) ao histórico.
 
     Caso especial: `ver_tela` não devolve só texto — a captura de tela vira
     uma mensagem de imagem de verdade, pro modelo (se tiver visão) processar
     de fato. Isso é diferente de qualquer outra tool, que só retorna texto.
+
+    Retorna metadados extras (ex: o print tirado, em base64) quando existem,
+    pra quem chamou poder exibir isso na interface — é o que dá a
+    transparência de "ver o que o JARVIS está fazendo", parecido com o
+    Cowork.
     """
     if call["name"] == "ver_tela":
         try:
@@ -160,16 +195,18 @@ def _execute_tool_call(call: dict, history: list[dict]) -> None:
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
                 ],
             })
+            return {"screenshot_b64": image_b64}
         except RuntimeError as e:
             history.append({
                 "role": "tool",
                 "tool_call_id": call["id"],
                 "content": f"Não foi possível capturar a tela: {e}",
             })
-        return
+            return None
 
     tool_result = execute_tool(call["name"], call["arguments"])
     history.append({"role": "tool", "tool_call_id": call["id"], "content": tool_result})
+    return None
 
 
 def _run_agent_turn(session_id: str, user_text: str) -> dict:
@@ -240,8 +277,12 @@ def chat_stream(req: ChatRequest, request: Request):
                 if probe["tool_calls"]:
                     history.append(probe["raw_message"])
                     for call in probe["tool_calls"]:
-                        yield f"data: {json.dumps('[usando ' + call['name'] + '...] ')}\n\n"
-                        _execute_tool_call(call, history)
+                        label = _tool_activity_label(call["name"], call["arguments"])
+                        yield f"event: tool\ndata: {json.dumps({'name': call['name'], 'label': label})}\n\n"
+
+                        meta = _execute_tool_call(call, history)
+                        if meta and meta.get("screenshot_b64"):
+                            yield f"event: screenshot\ndata: {json.dumps({'image': meta['screenshot_b64']})}\n\n"
                     continue
 
                 # Sem tool call: agora sim streama a resposta final de verdade.

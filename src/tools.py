@@ -14,6 +14,8 @@ import json
 import os
 import subprocess
 import sys
+import time
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 
@@ -24,9 +26,11 @@ import database as db
 import embeddings
 import google_calendar
 import mouse_control
+import smart_light
 import word_control
 
 APPS_CONFIG_PATH = Path(__file__).parent.parent / "config" / "apps_config.json"  # tools.py agora está em src/, config/ fica na raiz
+PROJECTS_CONFIG_PATH = Path(__file__).parent.parent / "config" / "projects_config.json"
 
 LINEAR_API_KEY = os.environ.get("LINEAR_API_KEY", "")
 LINEAR_TEAM_ID = os.environ.get("LINEAR_TEAM_ID", "")
@@ -182,6 +186,29 @@ TOOLS = [
         },
     },
     {
+        "name": "abrir_projeto",
+        "description": (
+            "Abre uma 'rotina de projeto' pré-configurada — vários passos de uma vez (ex: abrir "
+            "o VS Code numa pasta, ligar um servidor, abrir uma URL no navegador). MUITO mais "
+            "confiável que usar `ver_tela`+`clicar_na_tela` pra isso, porque não depende de "
+            "clique nenhum — só executa comandos já configurados. USE quando o usuário disser "
+            "'abre o projeto X' ou 'abre meu ambiente de trabalho'. Se não tiver certeza do nome "
+            "exato, chame `list_available_projects` primeiro."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nome": {"type": "string", "description": "Nome do projeto/rotina a abrir, como configurado."},
+            },
+            "required": ["nome"],
+        },
+    },
+    {
+        "name": "list_available_projects",
+        "description": "Lista as rotinas de projeto já configuradas e prontas pra abrir por voz via `abrir_projeto`.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "list_available_apps",
         "description": (
             "Lista os apps/jogos/plataformas já configurados e prontos pra abrir por voz via "
@@ -318,6 +345,23 @@ TOOLS = [
             "required": ["title", "start_iso"],
         },
     },
+    {
+        "name": "controlar_luz",
+        "description": (
+            "Liga, desliga ou ajusta o brilho de uma lâmpada inteligente Tapo/Kasa configurada. "
+            "USE quando o usuário pedir pra ligar/desligar/ajustar a luz. Se a lâmpada não "
+            "estiver configurada ainda, a tool avisa isso claramente — não invente que "
+            "funcionou."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "acao": {"type": "string", "enum": ["ligar", "desligar", "brilho"], "description": "Ação a realizar."},
+                "brilho_percentual": {"type": "integer", "description": "Necessário só se acao='brilho'. De 1 a 100."},
+            },
+            "required": ["acao"],
+        },
+    },
 ]
 
 
@@ -358,6 +402,17 @@ def execute_tool(name: str, tool_input: dict) -> str:
 
     if name == "open_app":
         return _open_app(tool_input["app_name"])
+
+    if name == "abrir_projeto":
+        return _abrir_projeto(tool_input["nome"])
+
+    if name == "list_available_projects":
+        projects = _load_projects_config()
+        if not projects:
+            return "Nenhum projeto configurado ainda em config/projects_config.json."
+        return "Projetos disponíveis: " + ", ".join(
+            f"{nome} ({info.get('descricao', 'sem descrição')})" for nome, info in projects.items()
+        )
 
     if name == "clicar_na_tela":
         try:
@@ -406,6 +461,16 @@ def execute_tool(name: str, tool_input: dict) -> str:
             description=tool_input.get("description", ""),
         )
 
+    if name == "controlar_luz":
+        acao = tool_input["acao"]
+        if acao == "ligar":
+            return smart_light.turn_on()
+        if acao == "desligar":
+            return smart_light.turn_off()
+        if acao == "brilho":
+            return smart_light.set_brightness(tool_input.get("brilho_percentual", 100))
+        return f"Ação de luz desconhecida: {acao}"
+
     return f"Ferramenta desconhecida: {name}"
 
 
@@ -448,6 +513,58 @@ def execute_approved_command(command: str) -> tuple[str, str]:
         return "failed", "Timeout de 30s excedido."
     except Exception as e:
         return "failed", str(e)
+
+
+def _load_projects_config() -> dict:
+    if not PROJECTS_CONFIG_PATH.exists():
+        return {}
+    with open(PROJECTS_CONFIG_PATH, encoding="utf-8") as f:
+        data = json.load(f)
+    data.pop("_comentario", None)
+    return data
+
+
+def _abrir_projeto(nome: str) -> str:
+    projects = _load_projects_config()
+    if not projects:
+        return "Nenhum projeto configurado ainda. Adicione entradas em config/projects_config.json primeiro."
+
+    key = nome.strip().lower()
+    match = None
+    matched_name = None
+    for proj_name, info in projects.items():
+        if proj_name.lower() == key or key in proj_name.lower() or proj_name.lower() in key:
+            match = info
+            matched_name = proj_name
+            break
+
+    if not match:
+        available = ", ".join(projects.keys())
+        return f"Projeto '{nome}' não encontrado. Projetos disponíveis: {available}."
+
+    passos = match.get("passos", [])
+    resultados = []
+    for passo in passos:
+        tipo = passo.get("tipo")
+        try:
+            if tipo == "vscode":
+                subprocess.Popen(["code", passo["caminho"]], shell=True)
+                resultados.append(f"VS Code aberto em {passo['caminho']}")
+            elif tipo == "comando":
+                subprocess.Popen(passo["comando"], shell=True)
+                resultados.append(f"Comando executado: {passo['comando']}")
+            elif tipo == "url":
+                webbrowser.open(passo["url"])
+                resultados.append(f"Navegador aberto em {passo['url']}")
+            elif tipo == "esperar":
+                time.sleep(passo.get("segundos", 1))
+                resultados.append(f"Aguardou {passo.get('segundos', 1)}s")
+            else:
+                resultados.append(f"Tipo de passo desconhecido: {tipo}")
+        except Exception as e:
+            resultados.append(f"Erro no passo '{tipo}': {e}")
+
+    return f"Projeto '{matched_name}' aberto. Passos executados: " + "; ".join(resultados)
 
 
 def _open_app(app_name: str) -> str:
