@@ -165,11 +165,13 @@ jarvis-ia/
 │   ├── word_control.py                       # Automação do Microsoft Word (Windows only)
 │   ├── google_calendar.py                      # Integração com Google Calendar
 │   ├── mouse_control.py                          # Controle de mouse/teclado (clicar, digitar)
+│   ├── smart_light.py                              # Controle de lâmpada Tapo/Kasa (opcional)
 │   ├── wake_word_listener.py                   # "Hey JARVIS" — ativação por voz
 │   └── tray_app.py                               # Ícone na bandeja do sistema
 │
 ├── config/
-│   └── apps_config.json    # Nome → comando dos apps/jogos que abrem por voz
+│   ├── apps_config.json    # Nome → comando dos apps/jogos que abrem por voz
+│   └── projects_config.json # Rotinas de projeto (editor + servidor + navegador)
 │
 ├── assets/
 │   └── icon.ico             # Ícone usado pelos atalhos
@@ -218,11 +220,13 @@ na raiz do projeto, não dentro de `src/`.
 | `remember` / `recall` | Memória de longo prazo com busca semântica |
 | `propose_command` | Comando de terminal genérico — precisa de aprovação |
 | `open_app` | Abre um app/jogo pré-configurado (Steam, Discord, League...) — **executa na hora, sem aprovação** |
-| `list_available_apps` | Lista o que já está configurado pra abrir por voz |
+| `abrir_projeto` | Abre uma rotina de projeto (editor + servidor + navegador) — **100% confiável, sem depender de clique** |
+| `list_available_apps` / `list_available_projects` | Lista o que já está configurado pra abrir por voz |
 | `write_word_document` | Abre o Word e escreve um documento de verdade |
 | `ver_tela` | Captura a tela e analisa visualmente (precisa de modelo com visão) |
 | `clicar_na_tela` / `digitar_texto` / `pressionar_tecla` | Controle de mouse/teclado — **AÇÃO REAL, veja avisos abaixo** |
 | `list_calendar_events` / `create_calendar_event` | Integração com Google Calendar (opcional) |
+| `controlar_luz` | Liga/desliga/ajusta brilho de lâmpada Tapo/Kasa (opcional) |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
 ## Visão — o JARVIS "vendo" sua tela
@@ -253,6 +257,17 @@ conversa → modelo responde sobre o que viu" foi testado de ponta a ponta
 com a captura mockada, e funcionou certinho.
 
 ## Controle de mouse e teclado — o JARVIS "agindo" na tela
+
+**Você vê tudo em tempo real no chat**: cada vez que o JARVIS usa uma
+ferramenta, aparece uma linha de atividade (ex: "🟡 Clicando em (960,
+540)..."), e toda captura de tela que ele tira (`ver_tela`) aparece como
+imagem de verdade no meio da conversa — clicável pra ver em tamanho
+maior. É a mesma ideia por trás do Cowork: você acompanha o que está
+acontecendo, não só recebe uma resposta final às cegas. Testei isso de
+ponta a ponta simulando os eventos exatos que o servidor gera, confirmando
+que os rótulos de atividade, o print, e a resposta final aparecem
+separados corretamente (antes dessa mudança, o rótulo da ferramenta
+ficava misturado dentro do texto da resposta — corrigi isso também).
 
 Além de "ver" a tela, o JARVIS pode **interagir** com o que vê: clicar em
 algo, digitar texto, navegar dentro de um programa já aberto (ex: "entra
@@ -562,6 +577,67 @@ verdade: a lógica de criação de evento (cálculo de horário de início/fim
 a partir da duração) com a API do Google mockada, e o comportamento de
 "calendário não configurado ainda" avisando com clareza em vez de inventar
 eventos.
+
+## Rotinas de projeto — "abrir projeto" com um comando de voz
+
+Diferente de `ver_tela`+`clicar_na_tela` (que dependem do modelo acertar
+onde clicar — nem sempre confiável), essa é uma forma **100% determinística**
+de fazer o JARVIS abrir várias coisas de uma vez: editor de código, servidor,
+navegador — sem depender de nenhum clique.
+
+### Configurando
+Edita `config/projects_config.json`. Cada projeto é uma lista de passos:
+- `vscode` — abre uma pasta no VS Code (precisa do comando `code` no PATH)
+- `comando` — roda qualquer comando de terminal
+- `url` — abre uma URL no navegador padrão
+- `esperar` — pausa alguns segundos (útil pra dar tempo de um servidor subir
+  antes de abrir o navegador nele)
+
+### Usando
+```
+"Hey JARVIS, abre o projeto jarvis-ia"
+"Hey JARVIS, quais projetos eu tenho configurado?"
+```
+
+### Testado
+Testei de ponta a ponta com um projeto de exemplo (comandos `echo` reais) —
+listagem, correspondência por nome exato e parcial, execução sequencial dos
+passos, e erro claro quando o projeto não existe. Todos passaram.
+
+## Lâmpada inteligente (Tapo/Kasa)
+
+Controle de luz via rede local — sem depender de nuvem no dia a dia (só a
+configuração inicial da lâmpada, pelo app oficial, usa internet).
+
+### 1. Compre uma lâmpada Tapo (ex: L510, L530) ou Kasa (ex: KL110, KL130)
+### 2. Configure pelo app oficial (Tapo ou Kasa Smart)
+Isso pareia a lâmpada com seu Wi-Fi — só essa etapa usa internet/conta.
+
+### 3. Preenche o `.env`
+```
+TAPO_USERNAME=seu-email-da-conta-tapo
+TAPO_PASSWORD=sua-senha-da-conta-tapo
+TAPO_BULB_IP=192.168.x.x
+```
+O IP você encontra no app oficial, nas configurações do dispositivo.
+
+### 4. Usa
+```
+"Hey JARVIS, liga a luz"
+"Hey JARVIS, coloca a luz em 30% de brilho"
+```
+
+### ⚠️ Sobre o teste
+**Não tenho nenhuma lâmpada física disponível** — não pôde ser testado com
+hardware de verdade. O que fiz: revisei a biblioteca `python-kasa` instalada
+de verdade e confirmei que os métodos usados (`Discover.discover_single`,
+`device.turn_on()`, `device.modules[Module.Light].set_brightness()`) existem
+com a assinatura exata que o código espera — inclusive corrigi uma chamada
+que eu tinha escrito errada no início (a API mudou de método direto pra um
+sistema de módulos numa versão recente da biblioteca, e só descobri isso
+inspecionando o código de verdade). O comportamento de "lâmpada não
+configurada" foi testado e funciona corretamente. O primeiro teste com
+hardware real só acontece quando você comprar a lâmpada.
 
 ## Fine-tuning — dando personalidade própria ao modelo
 

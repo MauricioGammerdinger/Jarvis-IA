@@ -1,0 +1,13 @@
+{
+  "_comentario": "Cada 'projeto' é uma sequência de passos executados em ordem, sem depender de clique/visão — 100% confiável. Tipos de passo disponíveis: 'vscode' (abre uma pasta no VS Code), 'comando' (roda um comando de terminal), 'url' (abre uma URL no navegador padrão), 'esperar' (pausa X segundos antes do próximo passo, útil pra dar tempo de um servidor subir antes de abrir o navegador nele).",
+
+  "jarvis-ia": {
+    "descricao": "Abre o projeto do JARVIS pra desenvolvimento",
+    "passos": [
+      {"tipo": "vscode", "caminho": "C:\\Users\\gamme\\OneDrive\\Documentos\\PROJETOS-PORTIFOLIO\\Jarvis-IA"},
+      {"tipo": "comando", "comando": "start cmd /k \"cd /d C:\\Users\\gamme\\OneDrive\\Documentos\\PROJETOS-PORTIFOLIO\\Jarvis-IA\\scripts && start_server.bat\""},
+      {"tipo": "esperar", "segundos": 6},
+      {"tipo": "url", "url": "http://localhost:8000/app"}
+    ]
+  }
+}
