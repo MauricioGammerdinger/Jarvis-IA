@@ -253,6 +253,21 @@
   .brain-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-dim); }
   .brain-legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 
+  .help-inner { max-width: 680px; margin: 0 auto; padding: 24px; width: 100%; overflow-y: auto; }
+  .help-category { margin-bottom: 26px; }
+  .help-category h3 {
+    font-size: 13px; color: var(--cyan); text-transform: uppercase; letter-spacing: .5px;
+    margin: 0 0 10px; display: flex; align-items: center; gap: 8px;
+  }
+  .help-item {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 14px; margin-bottom: 6px; font-size: 13.5px; display: flex;
+    align-items: baseline; gap: 8px; cursor: pointer; transition: border-color .15s;
+  }
+  .help-item:hover { border-color: var(--cyan); }
+  .help-item .help-phrase { color: var(--text); font-style: italic; flex-shrink: 0; }
+  .help-item .help-desc { color: var(--text-dim); font-size: 12px; }
+
   .brain-editor {
     position: fixed; inset: 0; background: rgba(4,6,10,.7); display: flex;
     align-items: center; justify-content: center; z-index: 30; padding: 20px;
@@ -298,6 +313,9 @@
     <div class="session-list" id="sessionList"></div>
 
     <div class="sidebar-footer">
+      <button class="sidebar-nav-item" id="helpTabBtn">
+        <span>📋 O que posso pedir</span>
+      </button>
       <button class="sidebar-nav-item" id="secondBrainTabBtn">
         <span>🧠 Second Brain</span>
         <span id="brainCount"></span>
@@ -392,6 +410,12 @@
       </div>
       <div class="brain-legend" id="brainLegend"></div>
     </div>
+
+    <div class="panel" data-panel="help">
+      <div class="help-inner" id="helpInner">
+        <div class="empty-state">Carregando...</div>
+      </div>
+    </div>
   </main>
 </div>
 
@@ -429,12 +453,14 @@
     document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.dataset.panel === name));
     if (name === "commands") loadCommands();
     if (name === "second-brain") loadSecondBrain();
+    if (name === "help") loadHelp();
     if (name === "settings") { loadMicDevices(); loadApps(); }
     closeSidebarOnMobile();
   }
   $("settingsTabBtn").addEventListener("click", () => showPanel("settings"));
   $("pendingTabBtn").addEventListener("click", () => showPanel("commands"));
   $("secondBrainTabBtn").addEventListener("click", () => showPanel("second-brain"));
+  $("helpTabBtn").addEventListener("click", () => showPanel("help"));
   $("brainReloadBtn").addEventListener("click", loadSecondBrain);
 
   function closeSidebarOnMobile() {
@@ -998,6 +1024,105 @@
   }
 
   // ── Gerenciar apps configurados (abrir por voz) ─────────────────────
+  // ── "O que posso pedir" — lista de comandos organizados por categoria ──
+  async function loadHelp() {
+    const el = $("helpInner");
+    let appNames = [];
+    if (apiKey) {
+      try {
+        const res = await fetch(serverUrl + "/apps", { headers: { "X-API-Key": apiKey } });
+        const data = await res.json();
+        appNames = (data.apps || []).map((a) => a.nome);
+      } catch (e) { /* segue com a lista genérica se falhar */ }
+    }
+
+    const exemploApp1 = appNames[0] || "Steam";
+    const exemploApp2 = appNames[1] || "Discord";
+
+    const categorias = [
+      {
+        titulo: "📱 Apps e programas",
+        itens: [
+          [`"abre o ${exemploApp1}"`, "Abre um app já configurado"],
+          [`"abre o ${exemploApp2}"`, "Idem, outro exemplo"],
+          ['"quais apps eu tenho configurado?"', "Lista tudo que já pode abrir"],
+          ['"abre o [app] e escreve [texto]"', "Abre e digita algo, usando visão da tela"],
+        ],
+      },
+      {
+        titulo: "🗂️ Rotinas de projeto",
+        itens: [
+          ['"abre o projeto [nome]"', "Abre editor + servidor + navegador de uma vez"],
+          ['"quais projetos eu tenho configurado?"', "Lista as rotinas disponíveis"],
+        ],
+      },
+      {
+        titulo: "🧠 Memória e Second Brain",
+        itens: [
+          ['"lembra que eu prefiro..."', "Salva uma preferência ou fato"],
+          ['"você lembra do meu...?"', "Busca na memória"],
+          ['"configura meu second brain"', "Inicia a entrevista guiada (8 áreas)"],
+        ],
+      },
+      {
+        titulo: "🖥️ Tela e controle",
+        itens: [
+          ['"o que tem na minha tela?"', "Analisa a tela (precisa de modelo com visão)"],
+          ['"clica em [algo que apareceu]"', "Clica onde você descrever"],
+        ],
+      },
+      {
+        titulo: "📅 Calendário",
+        itens: [
+          ['"o que eu tenho hoje?"', "Lista próximos eventos (Google Calendar)"],
+          ['"marca uma reunião amanhã às 15h"', "Cria um evento (pede confirmação antes)"],
+        ],
+      },
+      {
+        titulo: "💡 Casa inteligente",
+        itens: [
+          ['"liga a luz" / "desliga a luz"', "Controla lâmpada Tapo/Kasa configurada"],
+          ['"coloca a luz em 30%"', "Ajusta o brilho"],
+        ],
+      },
+      {
+        titulo: "📝 Documentos e trabalho",
+        itens: [
+          ['"escreve um documento sobre..."', "Abre o Word e escreve"],
+          ['"cria uma issue no Linear sobre..."', "Pede confirmação antes de criar"],
+        ],
+      },
+      {
+        titulo: "⚙️ Sistema",
+        itens: [
+          ['"que horas são?"', "Data e hora atuais"],
+          ['"roda o comando [x]"', "Fica pendente até você aprovar"],
+        ],
+      },
+    ];
+
+    el.innerHTML = "";
+    categorias.forEach((cat) => {
+      const catDiv = document.createElement("div");
+      catDiv.className = "help-category";
+      catDiv.innerHTML = `<h3>${cat.titulo}</h3>`;
+      cat.itens.forEach(([frase, desc]) => {
+        const item = document.createElement("div");
+        item.className = "help-item";
+        item.innerHTML = `<span class="help-phrase">${escapeHtml(frase)}</span><span class="help-desc">${escapeHtml(desc)}</span>`;
+        item.addEventListener("click", () => {
+          const fraseSemAspas = frase.replace(/^"|"$/g, "");
+          showPanel("chat");
+          input.value = fraseSemAspas;
+          input.dispatchEvent(new Event("input"));
+          input.focus();
+        });
+        catDiv.appendChild(item);
+      });
+      el.appendChild(catDiv);
+    });
+  }
+
   async function loadApps() {
     const el = $("appsList");
     if (!apiKey) { el.innerHTML = ""; return; }
