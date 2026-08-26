@@ -16,6 +16,7 @@ real só acontecem no seu PC.
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -91,7 +92,7 @@ def _get_recommended_model() -> str:
             vram_mb = int(result.stdout.strip().splitlines()[0])
             if vram_mb >= 8000:
                 print(f"      -> GPU NVIDIA com {vram_mb / 1024:.1f}GB de VRAM detectada.")
-                return "gemma4"
+                return "gemma4:e2b"
             print(f"      -> GPU NVIDIA detectada, mas com pouca VRAM ({vram_mb / 1024:.1f}GB).")
     except (FileNotFoundError, OSError, ValueError, IndexError):
         print("      -> Nenhuma GPU NVIDIA detectada (ou driver não instalado).")
@@ -109,7 +110,7 @@ def main() -> None:
         import webbrowser
 
         webbrowser.open("https://ollama.com/download")
-        print("\nDepois de instalar, rode no terminal: ollama pull gemma4")
+        print("\nDepois de instalar, rode no terminal: ollama pull gemma4:e2b")
         input("\nPressione Enter pra continuar a instalacao do JARVIS mesmo assim...")
     else:
         print("Ollama encontrado.\n")
@@ -142,7 +143,7 @@ def main() -> None:
         print(f"      -> Modelo recomendado pra essa máquina: {recommended_model}")
 
         env_content = env_example_path.read_text(encoding="utf-8")
-        env_content = env_content.replace("JARVIS_MODEL=gemma4", f"JARVIS_MODEL={recommended_model}")
+        env_content = re.sub(r"JARVIS_MODEL=.*", f"JARVIS_MODEL={recommended_model}", env_content)
         env_path.write_text(env_content, encoding="utf-8")
 
         print(f"      -> .env criado com modelo '{recommended_model}'. Chave padrão: secreta123")

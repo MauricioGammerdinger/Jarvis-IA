@@ -59,7 +59,7 @@ if (-not (Find-Ollama)) {
     Write-Host "   Abrindo a pagina de download pra voce..." -ForegroundColor Yellow
     Start-Process "https://ollama.com/download"
     Write-Host "`n   Depois de instalar o Ollama, rode no terminal:" -ForegroundColor Yellow
-    Write-Host "     ollama pull gemma4" -ForegroundColor Cyan
+    Write-Host "     ollama pull gemma4:e2b" -ForegroundColor Cyan
     Write-Host "   (Pode fazer isso agora ou depois -- este instalador continua," -ForegroundColor Yellow
     Write-Host "   mas o JARVIS só vai responder de verdade depois desse passo.)" -ForegroundColor Yellow
     Read-Host "`nPressione Enter pra continuar a instalação do JARVIS mesmo assim"
@@ -102,7 +102,7 @@ if (-not (Test-Path "$ProjectDir\.env")) {
         if ($LASTEXITCODE -eq 0 -and $vramOutput) {
             $vramMB = [int]($vramOutput -replace '[^\d]', '')
             if ($vramMB -ge 8000) {
-                $RecommendedModel = "gemma4"
+                $RecommendedModel = "gemma4:e2b"
                 Write-Host "     -> GPU NVIDIA com $([math]::Round($vramMB/1024,1))GB de VRAM detectada." -ForegroundColor Green
             } else {
                 Write-Host "     -> GPU NVIDIA detectada, mas com pouca VRAM ($([math]::Round($vramMB/1024,1))GB)." -ForegroundColor Yellow
@@ -116,7 +116,7 @@ if (-not (Test-Path "$ProjectDir\.env")) {
     Write-Host "     -> Modelo recomendado pra essa máquina: $RecommendedModel" -ForegroundColor Green
 
     $envContent = Get-Content "$ProjectDir\.env.example" -Raw
-    $envContent = $envContent -replace 'JARVIS_MODEL=gemma4', "JARVIS_MODEL=$RecommendedModel"
+    $envContent = $envContent -replace 'JARVIS_MODEL=.*', "JARVIS_MODEL=$RecommendedModel"
     Set-Content -Path "$ProjectDir\.env" -Value $envContent -NoNewline
 
     Write-Host "     -> .env criado com modelo '$RecommendedModel'. Chave padrão: secreta123" -ForegroundColor Green

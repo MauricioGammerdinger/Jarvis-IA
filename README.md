@@ -29,12 +29,17 @@ modelo Ollama maior (se sua GPU aguentar). Se não precisar de visão
    (ícone na bandeja do sistema).
 3. Abra o PowerShell ou Prompt de Comando e baixe o modelo recomendado:
    ```
-   ollama pull gemma4
+   ollama pull gemma4:e2b
    ```
-   Isso baixa uns 5-6GB — só acontece uma vez.
+   Isso baixa uns 5GB — só acontece uma vez. **Importante**: usamos
+   especificamente a variante `:e2b` (mais leve) porque testamos na prática
+   e confirmamos que o `gemma4` puro (sem sufixo) trava indefinidamente em
+   algumas GPUs — mesmo com VRAM aparentemente suficiente. Se sua GPU for
+   bem potente, pode tentar `gemma4` (sem sufixo) depois, mas teste com
+   cuidado antes de confiar nele pro dia a dia.
 4. Teste rapidamente:
    ```
-   ollama run gemma4
+   ollama run gemma4:e2b
    ```
    Se abrir um chat e responder, está funcionando. Digite `/bye` pra sair.
 
