@@ -639,6 +639,44 @@ inspecionando o código de verdade). O comportamento de "lâmpada não
 configurada" foi testado e funciona corretamente. O primeiro teste com
 hardware real só acontece quando você comprar a lâmpada.
 
+## Second Brain — o JARVIS "conhecendo" você de verdade
+
+Diferente da memória comum (`remember`/`recall`, que só entra na conversa
+quando parece relevante à pergunta), o Second Brain guarda fatos em **8
+categorias fixas** que entram em **toda** conversa, sempre — é o que faz o
+JARVIS "só saber" coisas sobre você, sem precisar você reforçar toda hora.
+
+### As 8 áreas
+`voce` (quem você é), `metas`, `carreira`, `projetos`, `financas`,
+`aprendizado`, `saude`, `relacoes`.
+
+### Como preencher
+Duas formas, as duas funcionam:
+- **Entrevista guiada**: peça "configura meu Second Brain" — o JARVIS
+  pergunta uma área por vez, aceita "pula", e salva cada resposta sozinho
+- **Naturalmente**: mencione algo relevante numa conversa normal (ex: "estou
+  aprendendo espanhol") — o JARVIS reconhece que isso se encaixa numa das 8
+  áreas e oferece salvar lá
+
+### O grafo visual
+Na barra lateral, **"🧠 Second Brain"** — mostra um grafo animado com cada
+nota como um nó colorido (cor por categoria) conectado ao núcleo central,
+com pulsos de luz viajando pelas conexões. Clique num nó pra editar ou
+excluir uma nota.
+
+### Testado de verdade
+- **Backend**: confirmei que só memórias nas 8 categorias entram no
+  contexto "sempre presente" — testei com memórias de 4 categorias do
+  Second Brain misturadas com uma memória comum, e a comum ficou de fora
+  corretamente
+- **Frontend**: gerei o grafo com dados reais e testei 11 pontos —
+  geração do SVG, número certo de nós/arestas, todas as posições dentro
+  dos limites da tela, núcleo centralizado, estado vazio funcionando, e a
+  matemática da curva usada nos pulsos animados (confirmei que o pulso
+  começa exatamente no centro e termina exatamente no nó de destino)
+- **Não testado**: a animação rodando de verdade num navegador (só a
+  matemática por trás dela) — visualmente só valida no seu PC
+
 ## Fine-tuning — dando personalidade própria ao modelo
 
 Tem uma pasta `finetuning/` com um pipeline completo de LoRA fine-tuning

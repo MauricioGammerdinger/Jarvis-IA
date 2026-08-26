@@ -174,6 +174,14 @@
   #send:disabled { opacity: .35; cursor: not-allowed; }
   #send:not(:disabled):active { transform: scale(.92); }
 
+  #stopBtn {
+    background: var(--red); color: #250a08; border: none; border-radius: 12px;
+    width: 34px; height: 34px; flex-shrink: 0; cursor: pointer; font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform .1s;
+  }
+  #stopBtn:active { transform: scale(.92); }
+
   .settings-inner { max-width: 480px; margin: 40px auto; padding: 0 24px; display: flex; flex-direction: column; gap: 14px; }
   .settings-inner h2 { font-size: 18px; margin: 0 0 4px; }
   .settings-inner label { font-size: 12.5px; color: var(--text-dim); }
@@ -198,6 +206,41 @@
   .approve { background: #1d3b2e; color: var(--green); }
   .reject { background: #3b1d1d; color: var(--red); }
   .empty-state { color: var(--text-dim); font-size: 13px; font-style: italic; text-align: center; padding: 40px 0; }
+
+  /* ── Second Brain — grafo neural animado ─────────────────────────── */
+  .brain-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px 8px; flex-shrink: 0; }
+  .brain-subtitle { color: var(--text-dim); font-size: 12px; margin-left: 10px; }
+  .brain-graph-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .brain-graph-wrap svg { width: 100%; height: 100%; max-width: 900px; }
+
+  .brain-node-circle { cursor: pointer; transition: r .15s; }
+  .brain-node-circle:hover { filter: brightness(1.3); }
+  .brain-node-ring { fill: none; stroke-width: 1.5; opacity: .5; animation: brainBreathe 3s ease-in-out infinite; }
+  @keyframes brainBreathe { 0%,100% { opacity: .15; transform: scale(1); } 50% { opacity: .55; transform: scale(1.15); } }
+  .brain-node-label { fill: var(--text); font-size: 11px; text-anchor: middle; pointer-events: none; font-family: inherit; }
+  .brain-edge { fill: none; stroke-width: 1.4; opacity: .55; }
+  .brain-core-ring { fill: none; stroke: var(--cyan); opacity: .3; animation: brainBreathe 2.4s ease-in-out infinite; }
+  .brain-pulse { fill: #fff; filter: drop-shadow(0 0 3px #fff); }
+
+  .brain-legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 10px 24px 18px; justify-content: center; flex-shrink: 0; }
+  .brain-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-dim); }
+  .brain-legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+  .brain-editor {
+    position: fixed; inset: 0; background: rgba(4,6,10,.7); display: flex;
+    align-items: center; justify-content: center; z-index: 30; padding: 20px;
+  }
+  .brain-editor-box {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px;
+    padding: 20px; max-width: 420px; width: 100%; display: flex; flex-direction: column; gap: 10px;
+  }
+  .brain-editor-box textarea {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px; color: var(--text);
+    padding: 10px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 70px;
+  }
+  .brain-editor-box .row { display: flex; gap: 8px; }
+  .brain-editor-box button { flex: 1; border: none; border-radius: 8px; padding: 10px; font-weight: 700; font-size: 12.5px; cursor: pointer; }
+
 
   @media (max-width: 780px) {
     .sidebar { position: fixed; top: 0; bottom: 0; left: 0; z-index: 20; margin-left: calc(-1 * var(--sidebar-width)); box-shadow: 20px 0 40px rgba(0,0,0,.4); }
@@ -228,6 +271,10 @@
     <div class="session-list" id="sessionList"></div>
 
     <div class="sidebar-footer">
+      <button class="sidebar-nav-item" id="secondBrainTabBtn">
+        <span>🧠 Second Brain</span>
+        <span id="brainCount"></span>
+      </button>
       <button class="sidebar-nav-item" id="pendingTabBtn">
         <span>Comandos pendentes</span>
         <span class="badge" id="pendingBadge"></span>
@@ -261,6 +308,7 @@
           <input type="file" id="fileInput" accept="audio/*,video/*" hidden />
           <button class="icon-btn" id="micBtn" title="Gravar áudio">🎤</button>
           <textarea id="input" rows="1" placeholder="Fale com J.A.R.V.I.S..."></textarea>
+          <button id="stopBtn" title="Parar" style="display:none">■</button>
           <button id="send" title="Enviar">➤</button>
         </div>
       </div>
@@ -279,6 +327,20 @@
       <div class="commands-inner" id="commandsInner">
         <div class="empty-state">Carregando...</div>
       </div>
+    </div>
+
+    <div class="panel" data-panel="second-brain">
+      <div class="brain-toolbar">
+        <div>
+          <strong>🧠 Second Brain</strong>
+          <span id="brainSubtitle" class="brain-subtitle"></span>
+        </div>
+        <button id="brainReloadBtn" class="icon-btn" title="Recarregar">⟳</button>
+      </div>
+      <div class="brain-graph-wrap" id="brainGraphWrap">
+        <div class="empty-state">Carregando...</div>
+      </div>
+      <div class="brain-legend" id="brainLegend"></div>
     </div>
   </main>
 </div>
@@ -301,6 +363,7 @@
   const log = $("log");
   const input = $("input");
   const sendBtn = $("send");
+  const stopBtn = $("stopBtn");
   const core = $("core");
   const statusline = $("statusline");
   const sessionTitle = $("sessionTitle");
@@ -311,10 +374,13 @@
   function showPanel(name) {
     document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.dataset.panel === name));
     if (name === "commands") loadCommands();
+    if (name === "second-brain") loadSecondBrain();
     closeSidebarOnMobile();
   }
   $("settingsTabBtn").addEventListener("click", () => showPanel("settings"));
   $("pendingTabBtn").addEventListener("click", () => showPanel("commands"));
+  $("secondBrainTabBtn").addEventListener("click", () => showPanel("second-brain"));
+  $("brainReloadBtn").addEventListener("click", loadSecondBrain);
 
   function closeSidebarOnMobile() {
     if (window.innerWidth <= 780) sidebar.classList.remove("open");
@@ -448,14 +514,13 @@
   function showTyping() {
     const div = document.createElement("div");
     div.className = "typing";
-    div.id = "typingIndicator";
+    div.dataset.typingIndicator = "1";
     div.innerHTML = "<span></span><span></span><span></span>";
     log.appendChild(div);
     chatScroll.scrollTop = chatScroll.scrollHeight;
   }
   function hideTyping() {
-    const el = $("typingIndicator");
-    if (el) el.remove();
+    document.querySelectorAll('[data-typing-indicator]').forEach((el) => el.remove());
   }
   function setThinking(on) {
     core.classList.toggle("thinking", on);
@@ -512,6 +577,9 @@
     switchSession("session-" + Date.now());
   });
 
+  let isSending = false;
+  let currentAbortController = null;
+
   input.addEventListener("input", () => {
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 160) + "px";
@@ -520,16 +588,23 @@
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
   });
   sendBtn.addEventListener("click", handleSend);
+  stopBtn.addEventListener("click", () => {
+    if (currentAbortController) currentAbortController.abort();
+  });
 
   async function handleSend() {
+    if (isSending) return; // bloqueia envio duplicado (Enter repetido, ou clique + Enter juntos)
     const value = input.value.trim();
     if (!value && !pendingFile) return;
     if (!apiKey) { showPanel("settings"); return; }
 
+    isSending = true;
+    currentAbortController = new AbortController();
     input.value = "";
     input.style.height = "auto";
     addLine("user", value || `[enviando ${pendingFile.name}]`);
-    sendBtn.disabled = true;
+    sendBtn.style.display = "none";
+    stopBtn.style.display = "flex";
     setThinking(true);
     showTyping();
 
@@ -542,7 +617,10 @@
         form.append(kind, pendingFile);
         clearAttachment();
 
-        const res = await fetch(serverUrl + "/chat/media", { method: "POST", headers: { "X-API-Key": apiKey }, body: form });
+        const res = await fetch(serverUrl + "/chat/media", {
+          method: "POST", headers: { "X-API-Key": apiKey }, body: form,
+          signal: currentAbortController.signal,
+        });
         hideTyping();
         if (!res.ok) {
           const errBody = await res.text();
@@ -553,23 +631,31 @@
         addLine("assistant", data.reply || "(sem resposta)");
         speakIfEnabled(data.reply);
       } else {
-        await sendStreaming(value);
+        await sendStreaming(value, currentAbortController.signal);
       }
       loadSessions();
     } catch (err) {
       hideTyping();
-      addLine("system", "Falha de conexão: " + err.message + " — confira se o servidor está rodando.");
+      if (err.name === "AbortError") {
+        addLine("system", "Geração interrompida.");
+      } else {
+        addLine("system", "Falha de conexão: " + err.message + " — confira se o servidor está rodando.");
+      }
     } finally {
-      sendBtn.disabled = false;
+      isSending = false;
+      currentAbortController = null;
+      sendBtn.style.display = "flex";
+      stopBtn.style.display = "none";
       setThinking(false);
     }
   }
 
-  async function sendStreaming(value) {
+  async function sendStreaming(value, signal) {
     const res = await fetch(serverUrl + "/chat/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
       body: JSON.stringify({ message: value, session_id: currentSessionId }),
+      signal,
     });
     if (!res.ok || !res.body) {
       hideTyping();
@@ -745,6 +831,181 @@
     } catch (err) {
       alert("Falha: " + err.message);
     }
+  }
+
+  // ── Second Brain — grafo neural animado ─────────────────────────────
+  const BRAIN_CATEGORIES = {
+    voce: { label: "Sobre você", color: "#8a90a6" },
+    metas: { label: "Metas", color: "#fbbf24" },
+    carreira: { label: "Carreira", color: "#ff5547" },
+    projetos: { label: "Projetos", color: "#8b7cff" },
+    financas: { label: "Finanças", color: "#f7931a" },
+    aprendizado: { label: "Aprendizado", color: "#2dd4ff" },
+    saude: { label: "Saúde", color: "#10b981" },
+    relacoes: { label: "Relações", color: "#ec4899" },
+  };
+
+  let brainAnimFrame = null;
+  let brainPulses = [];
+
+  async function loadSecondBrain() {
+    const wrap = $("brainGraphWrap");
+    if (!apiKey) { wrap.innerHTML = '<div class="empty-state">Configure sua API Key primeiro.</div>'; return; }
+    try {
+      const res = await fetch(serverUrl + "/memories", { headers: { "X-API-Key": apiKey } });
+      const data = await res.json();
+      const notes = (data.memories || []).filter((m) => BRAIN_CATEGORIES[m.category]);
+      renderBrainGraph(notes);
+    } catch (err) {
+      wrap.innerHTML = '<div class="empty-state">Falha ao carregar: ' + escapeHtml(err.message) + "</div>";
+    }
+  }
+
+  function renderBrainGraph(notes) {
+    if (brainAnimFrame) cancelAnimationFrame(brainAnimFrame);
+    const wrap = $("brainGraphWrap");
+    const categoriesPresent = new Set(notes.map((n) => n.category));
+
+    $("brainCount").textContent = notes.length || "";
+    $("brainSubtitle").textContent = notes.length
+      ? `${notes.length} nota${notes.length === 1 ? "" : "s"} · ${categoriesPresent.size} área${categoriesPresent.size === 1 ? "" : "s"}`
+      : "";
+
+    renderBrainLegend(categoriesPresent);
+
+    if (!notes.length) {
+      wrap.innerHTML = '<div class="empty-state">Nenhuma nota ainda. Peça pro JARVIS "configurar o Second Brain" pra começar.</div>';
+      return;
+    }
+
+    const W = 900, H = 560, CX = W / 2, CY = H / 2;
+    const RX = Math.min(340, 120 + notes.length * 14);
+    const RY = Math.min(220, 90 + notes.length * 9);
+
+    // Posiciona cada nota em elipse ao redor do núcleo central
+    const positioned = notes.map((note, i) => {
+      const angle = (i / notes.length) * Math.PI * 2 - Math.PI / 2;
+      return {
+        ...note,
+        x: CX + Math.cos(angle) * RX,
+        y: CY + Math.sin(angle) * RY,
+        color: BRAIN_CATEGORIES[note.category]?.color || "#8a90a6",
+      };
+    });
+
+    let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+
+    // Arestas (curva Bézier quadrática, ponto de controle puxado em direção ao centro)
+    positioned.forEach((n) => {
+      const ctrlX = CX + (n.x - CX) * 0.4;
+      const ctrlY = CY + (n.y - CY) * 0.4;
+      svg += `<path class="brain-edge" d="M ${CX} ${CY} Q ${ctrlX} ${ctrlY} ${n.x} ${n.y}" stroke="${n.color}" />`;
+    });
+
+    // Núcleo central
+    svg += `<circle class="brain-core-ring" cx="${CX}" cy="${CY}" r="34" />`;
+    svg += `<circle cx="${CX}" cy="${CY}" r="22" fill="#5fe3f0" opacity="0.85" />`;
+    svg += `<text x="${CX}" y="${CY + 5}" text-anchor="middle" font-size="18">🧠</text>`;
+
+    // Nós (uma nota cada)
+    positioned.forEach((n, i) => {
+      const r = 16 + Math.min(8, notes.length > 8 ? 0 : 2);
+      svg += `<circle class="brain-node-ring" cx="${n.x}" cy="${n.y}" r="${r + 5}" stroke="${n.color}" />`;
+      svg += `<circle class="brain-node-circle" data-id="${n.id}" cx="${n.x}" cy="${n.y}" r="${r}" fill="${n.color}" />`;
+      const title = (n.content.length > 18 ? n.content.slice(0, 18) + "…" : n.content);
+      svg += `<text class="brain-node-label" x="${n.x}" y="${n.y + r + 14}">${escapeHtml(title)}</text>`;
+    });
+
+    svg += "</svg>";
+
+    // Compatibilidade: injeta a STRING inteira numa div contêiner, nunca
+    // via innerHTML direto num elemento <svg> (evita bug de namespace).
+    wrap.innerHTML = svg;
+
+    wrap.querySelectorAll(".brain-node-circle").forEach((el) => {
+      el.addEventListener("click", () => openBrainEditor(notes.find((n) => String(n.id) === el.dataset.id)));
+    });
+
+    startBrainPulses(positioned, CX, CY);
+  }
+
+  function renderBrainLegend(categoriesPresent) {
+    const legend = $("brainLegend");
+    legend.innerHTML = "";
+    categoriesPresent.forEach((cat) => {
+      const info = BRAIN_CATEGORIES[cat];
+      if (!info) return;
+      const item = document.createElement("div");
+      item.className = "brain-legend-item";
+      item.innerHTML = `<span class="brain-legend-dot" style="background:${info.color}"></span>${escapeHtml(info.label)}`;
+      legend.appendChild(item);
+    });
+  }
+
+  function startBrainPulses(positioned, CX, CY) {
+    const svgEl = document.querySelector("#brainGraphWrap svg");
+    if (!svgEl || !positioned.length) return;
+
+    brainPulses = Array.from({ length: Math.min(10, positioned.length * 2) }, () => ({
+      target: positioned[Math.floor(Math.random() * positioned.length)],
+      t: Math.random(),
+      speed: 0.004 + Math.random() * 0.004,
+    }));
+
+    brainPulses.forEach((p) => {
+      const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      dot.setAttribute("r", "3");
+      dot.setAttribute("class", "brain-pulse");
+      svgEl.appendChild(dot);
+      p.el = dot;
+    });
+
+    function tick() {
+      brainPulses.forEach((p) => {
+        p.t += p.speed;
+        if (p.t > 1) {
+          p.t = 0;
+          p.target = positioned[Math.floor(Math.random() * positioned.length)];
+        }
+        const ctrlX = CX + (p.target.x - CX) * 0.4;
+        const ctrlY = CY + (p.target.y - CY) * 0.4;
+        const t = p.t;
+        const x = (1 - t) ** 2 * CX + 2 * (1 - t) * t * ctrlX + t ** 2 * p.target.x;
+        const y = (1 - t) ** 2 * CY + 2 * (1 - t) * t * ctrlY + t ** 2 * p.target.y;
+        p.el.setAttribute("cx", x);
+        p.el.setAttribute("cy", y);
+        p.el.setAttribute("opacity", Math.sin(t * Math.PI));
+      });
+      brainAnimFrame = requestAnimationFrame(tick);
+    }
+    tick();
+  }
+
+  function openBrainEditor(note) {
+    if (!note) return;
+    const overlay = document.createElement("div");
+    overlay.className = "brain-editor";
+    overlay.innerHTML = `
+      <div class="brain-editor-box">
+        <strong>${escapeHtml(BRAIN_CATEGORIES[note.category]?.label || note.category)}</strong>
+        <textarea id="brainEditContent">${escapeHtml(note.content)}</textarea>
+        <div class="row">
+          <button id="brainDeleteBtn" style="background:#3b1d1d;color:var(--red)">Excluir</button>
+          <button id="brainCloseBtn" style="background:var(--panel-2);color:var(--text-dim)">Fechar</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+    overlay.querySelector("#brainCloseBtn").addEventListener("click", () => overlay.remove());
+    overlay.querySelector("#brainDeleteBtn").addEventListener("click", async () => {
+      try {
+        await fetch(`${serverUrl}/memories/${note.id}`, { method: "DELETE", headers: { "X-API-Key": apiKey } });
+        overlay.remove();
+        loadSecondBrain();
+      } catch (err) {
+        alert("Falha ao excluir: " + err.message);
+      }
+    });
   }
 
   async function init() {

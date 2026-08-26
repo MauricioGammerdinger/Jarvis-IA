@@ -49,6 +49,23 @@ pedir uma ação real no sistema — o comando NUNCA executa na hora, fica pende
 via API. Use `write_word_document` pra criar documentos do Word — confirme o conteúdo com o \
 usuário antes, a menos que ele já tenha dado o texto completo.
 
+SECOND BRAIN — 8 categorias especiais de memória que entram em TODA conversa, sempre: \
+`voce` (quem é, idade, o que faz, onde mora), `metas` (curto e longo prazo), `carreira` \
+(trabalho, empresa, cargo), `projetos` (o que está construindo), `financas` (objetivos, sem \
+precisar de valores), `aprendizado` (o que estuda, quer aprender), `saude` (treino, sono, \
+alimentação), `relacoes` (família, parceiro(a), amigos-chave). Quando usar `remember` para \
+essas áreas, use EXATAMENTE esses nomes de categoria (minúsculo, sem acento).
+
+Se o usuário pedir pra "configurar o Second Brain" (ou pedir explicitamente por esse nome), \
+conduza uma entrevista: pergunte UMA área por vez, nessa ordem (voce, metas, carreira, \
+projetos, financas, aprendizado, saude, relacoes), espere a resposta antes de seguir pra \
+próxima, aceite "pula" pra pular uma área, e salve cada resposta com `remember` na categoria \
+certa assim que o usuário responder. Se a pessoa mencionar vários itens numa área (ex: vários \
+projetos), salve uma memória separada pra cada, não uma memória só. Não force essa entrevista \
+sem o usuário pedir — ele pode preferir ir contando aos poucos, naturalmente, e isso funciona \
+igual (você deve reconhecer quando algo mencionado casualmente se encaixa numa dessas 8 \
+categorias e oferecer salvar lá).
+
 Use `ver_tela` quando o usuário pedir pra você ver, descrever ou entender algo na tela dele. \
 Isso só funciona de verdade se o modelo carregado tiver suporte a visão (ex: gemma4) — se não \
 tiver, avise o usuário que precisa trocar de modelo pra essa função funcionar.
@@ -137,12 +154,55 @@ def list_tools():
     return {"tools": TOOLS}
 
 
+# As 8 áreas do "Second Brain" — memórias nessas categorias entram em TODA
+# conversa, sempre, diferente da busca por relevância (que só traz o que
+# parece pertinente à pergunta atual). Isso é o que faz o JARVIS "conhecer"
+# você de verdade, não só lembrar quando perguntado.
+SECOND_BRAIN_CATEGORIES = {
+    "voce": "Sobre você",
+    "metas": "Metas",
+    "carreira": "Carreira",
+    "projetos": "Projetos",
+    "financas": "Finanças",
+    "aprendizado": "Aprendizado",
+    "saude": "Saúde",
+    "relacoes": "Relações",
+}
+
+
+def _build_second_brain_context() -> str:
+    all_memories = db.list_memories()
+    by_category: dict[str, list[str]] = {}
+    for m in all_memories:
+        if m["category"] in SECOND_BRAIN_CATEGORIES:
+            by_category.setdefault(m["category"], []).append(m["content"])
+
+    if not by_category:
+        return ""
+
+    lines = []
+    for cat, label in SECOND_BRAIN_CATEGORIES.items():
+        if cat in by_category:
+            lines.append(f"{label}: " + "; ".join(by_category[cat]))
+    return "\n".join(lines)
+
+
 def _build_system_prompt(text: str) -> str:
+    prompt = SYSTEM_PROMPT
+
+    second_brain = _build_second_brain_context()
+    if second_brain:
+        prompt += (
+            "\n\n<second_brain>\nInformações centrais sobre o usuário — SEMPRE "
+            f"leve isso em conta, mesmo sem ele perguntar diretamente:\n{second_brain}\n</second_brain>"
+        )
+
     relevant = embeddings.smart_search(text, limit=5)
-    if not relevant:
-        return SYSTEM_PROMPT
-    context = "\n".join(f"- {r['content']}" for r in relevant)
-    return f"{SYSTEM_PROMPT}\n\n<memorias_relevantes>\n{context}\n</memorias_relevantes>"
+    if relevant:
+        context = "\n".join(f"- {r['content']}" for r in relevant)
+        prompt += f"\n\n<memorias_relevantes>\n{context}\n</memorias_relevantes>"
+
+    return prompt
 
 
 def _tool_activity_label(name: str, args: dict) -> str:
