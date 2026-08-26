@@ -33,11 +33,50 @@ JARVIS_API_URL = os.environ.get("JARVIS_API_URL", "http://localhost:8000")
 JARVIS_API_KEY = os.environ.get("JARVIS_API_KEY", "")
 WAKE_THRESHOLD = float(os.environ.get("WAKE_WORD_THRESHOLD", "0.5"))
 RECORD_SECONDS = float(os.environ.get("WAKE_WORD_RECORD_SECONDS", "5"))
+INPUT_DEVICE = os.environ.get("WAKE_WORD_INPUT_DEVICE", "").strip()
 
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 1280  # 80ms — tamanho de frame que o openWakeWord espera
 
 HEADERS = {"X-API-Key": JARVIS_API_KEY}
+
+
+def list_input_devices() -> None:
+    """Lista os microfones disponíveis, com o índice/nome que vai no .env (WAKE_WORD_INPUT_DEVICE)."""
+    print("Dispositivos de entrada de áudio disponíveis:\n")
+    devices = sd.query_devices()
+    found = False
+    for i, dev in enumerate(devices):
+        if dev["max_input_channels"] > 0:
+            found = True
+            default_mark = " (padrão atual)" if i == sd.default.device[0] else ""
+            print(f"  [{i}] {dev['name']}{default_mark}")
+    if not found:
+        print("  Nenhum microfone encontrado.")
+    print("\nPra usar um específico, coloque o número OU um trecho do nome em")
+    print("WAKE_WORD_INPUT_DEVICE no .env (ex: WAKE_WORD_INPUT_DEVICE=2 ou WAKE_WORD_INPUT_DEVICE=Headset).")
+    print("Deixe em branco pra usar o microfone padrão do Windows.")
+
+
+def _resolve_input_device():
+    """
+    Converte o valor de WAKE_WORD_INPUT_DEVICE (índice numérico, trecho do
+    nome, ou vazio) no formato que o sounddevice espera. Vazio = usa o
+    padrão do sistema (não especifica nada, deixa o sounddevice decidir).
+    """
+    if not INPUT_DEVICE:
+        return None
+    if INPUT_DEVICE.isdigit():
+        return int(INPUT_DEVICE)
+
+    devices = sd.query_devices()
+    for i, dev in enumerate(devices):
+        if dev["max_input_channels"] > 0 and INPUT_DEVICE.lower() in dev["name"].lower():
+            return i
+    raise RuntimeError(
+        f"Nenhum microfone encontrado com o nome '{INPUT_DEVICE}'. "
+        f"Rode 'python wake_word_listener.py --list-devices' pra ver os disponíveis."
+    )
 
 
 def _find_hey_jarvis_model() -> str:
@@ -79,7 +118,9 @@ def beep_ack() -> None:
 
 def record_command(seconds: float) -> bytes:
     """Grava `seconds` de áudio do microfone e devolve como bytes de um WAV válido."""
-    recording = sd.rec(int(seconds * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, dtype="int16")
+    recording = sd.rec(
+        int(seconds * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, dtype="int16", device=_resolve_input_device()
+    )
     sd.wait()
 
     buf = io.BytesIO()
@@ -125,8 +166,19 @@ def handle_wake_word_detected() -> None:
 
 
 def main():
+    if "--list-devices" in sys.argv:
+        list_input_devices()
+        return
+
     if not JARVIS_API_KEY:
         print("Erro: defina JARVIS_API_KEY antes de rodar (mesma chave do servidor).")
+        sys.exit(1)
+
+    device = None
+    try:
+        device = _resolve_input_device()
+    except RuntimeError as e:
+        print(f"Erro: {e}")
         sys.exit(1)
 
     model_path = _find_hey_jarvis_model()
@@ -135,6 +187,8 @@ def main():
 
     print(f"[jarvis] Escutando por 'Hey JARVIS'... (Ctrl+C pra parar)")
     print(f"[jarvis] Servidor: {JARVIS_API_URL}")
+    if device is not None:
+        print(f"[jarvis] Usando microfone: {sd.query_devices(device)['name']}")
 
     cooldown_until = 0.0
 
@@ -153,7 +207,8 @@ def main():
 
     try:
         with sd.InputStream(
-            channels=1, samplerate=SAMPLE_RATE, blocksize=CHUNK_SIZE, dtype="int16", callback=audio_callback
+            channels=1, samplerate=SAMPLE_RATE, blocksize=CHUNK_SIZE, dtype="int16",
+            callback=audio_callback, device=device,
         ):
             while True:
                 time.sleep(0.1)

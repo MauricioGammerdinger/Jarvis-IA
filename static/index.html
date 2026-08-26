@@ -190,6 +190,11 @@
     color: var(--text); padding: 11px 13px; font-size: 14px; outline: none; transition: border-color .2s;
   }
   .settings-inner input:focus { border-color: var(--cyan); }
+  .settings-inner select {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+    color: var(--text); padding: 11px 13px; font-size: 14px; outline: none; transition: border-color .2s;
+  }
+  .settings-inner select:focus { border-color: var(--cyan); }
   .settings-inner button {
     background: var(--cyan-dim); color: var(--cyan); border: 1px solid var(--cyan);
     border-radius: 10px; padding: 11px; font-weight: 700; font-size: 13.5px; cursor: pointer;
@@ -320,6 +325,12 @@
         <label for="apiKey">X-API-Key</label>
         <input id="apiKey" type="password" placeholder="Cole sua chave aqui" />
         <button id="saveSettingsBtn">Salvar</button>
+
+        <h2 style="margin-top: 20px;">Microfone</h2>
+        <label for="micSelect">Dispositivo de captura de áudio</label>
+        <select id="micSelect"></select>
+        <button id="testMicBtn" type="button">Testar microfone (3s)</button>
+        <span id="micTestResult" style="font-size:12px;color:var(--text-dim);"></span>
       </div>
     </div>
 
@@ -356,6 +367,7 @@
   let mediaRecorder = null;
   let recordedChunks = [];
   let isRecording = false;
+  let selectedMicId = localStorage.getItem("jarvis_mic_device_id") || "";
 
   const $ = (id) => document.getElementById(id);
   const sidebar = $("sidebar");
@@ -370,11 +382,13 @@
   const sessionList = $("sessionList");
   const apiKeyInput = $("apiKey");
   const connState = $("connState");
+  const micSelect = $("micSelect");
 
   function showPanel(name) {
     document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.dataset.panel === name));
     if (name === "commands") loadCommands();
     if (name === "second-brain") loadSecondBrain();
+    if (name === "settings") loadMicDevices();
     closeSidebarOnMobile();
   }
   $("settingsTabBtn").addEventListener("click", () => showPanel("settings"));
@@ -398,6 +412,76 @@
     showPanel("chat");
     addLine("system", "Configurações salvas.");
     loadSessions();
+  });
+
+  // ── Seleção de microfone ─────────────────────────────────────────
+  async function loadMicDevices() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      micSelect.innerHTML = '<option value="">Navegador não suporta listar microfones</option>';
+      return;
+    }
+    try {
+      // Pede permissão primeiro — sem isso, o navegador não revela os nomes dos dispositivos
+      const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      tempStream.getTracks().forEach((t) => t.stop());
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const mics = devices.filter((d) => d.kind === "audioinput");
+
+      micSelect.innerHTML = "";
+      const defaultOpt = document.createElement("option");
+      defaultOpt.value = "";
+      defaultOpt.textContent = "Padrão do sistema";
+      micSelect.appendChild(defaultOpt);
+
+      mics.forEach((mic) => {
+        const opt = document.createElement("option");
+        opt.value = mic.deviceId;
+        opt.textContent = mic.label || `Microfone ${mic.deviceId.slice(0, 8)}`;
+        if (mic.deviceId === selectedMicId) opt.selected = true;
+        micSelect.appendChild(opt);
+      });
+    } catch (err) {
+      micSelect.innerHTML = '<option value="">Não foi possível listar — permita o microfone</option>';
+    }
+  }
+
+  micSelect.addEventListener("change", () => {
+    selectedMicId = micSelect.value;
+    localStorage.setItem("jarvis_mic_device_id", selectedMicId);
+  });
+
+  $("testMicBtn").addEventListener("click", async () => {
+    const resultEl = $("micTestResult");
+    resultEl.textContent = "Gravando 3s, fala alguma coisa...";
+    try {
+      const constraints = selectedMicId ? { audio: { deviceId: { exact: selectedMicId } } } : { audio: true };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const analyser = audioCtx.createAnalyser();
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      let maxVolume = 0;
+      const start = Date.now();
+      function sample() {
+        analyser.getByteFrequencyData(data);
+        const avg = data.reduce((a, b) => a + b, 0) / data.length;
+        maxVolume = Math.max(maxVolume, avg);
+        if (Date.now() - start < 3000) {
+          requestAnimationFrame(sample);
+        } else {
+          stream.getTracks().forEach((t) => t.stop());
+          audioCtx.close();
+          resultEl.textContent = maxVolume > 5
+            ? `✓ Captando som (pico: ${maxVolume.toFixed(0)}) — microfone funcionando`
+            : "⚠ Quase nenhum som captado — confira se é o microfone certo";
+        }
+      }
+      sample();
+    } catch (err) {
+      resultEl.textContent = "Erro: " + err.message;
+    }
   });
 
   const ttsBtn = $("ttsToggleBtn");
@@ -769,7 +853,8 @@
     if (!apiKey) { showPanel("settings"); return; }
     if (isRecording) { mediaRecorder.stop(); return; }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const constraints = selectedMicId ? { audio: { deviceId: { exact: selectedMicId } } } : { audio: true };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       recordedChunks = [];
       mediaRecorder = new MediaRecorder(stream);
       mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };

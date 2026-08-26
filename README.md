@@ -401,6 +401,21 @@ python src\wake_word_listener.py
 Fala "Hey JARVIS", espera o bipe, fala seu pedido. A resposta toca no
 alto-falante automaticamente.
 
+### Escolhendo qual microfone usar
+Se seu PC tem mais de um microfone (ex: interno + headset USB), o listener
+usa o padrão do Windows por padrão. Pra escolher outro:
+```powershell
+python src\wake_word_listener.py --list-devices
+```
+Isso mostra a lista numerada dos microfones disponíveis. Coloca o número
+(ou um trecho do nome, ex: `Headset`) no `.env`:
+```
+WAKE_WORD_INPUT_DEVICE=1
+```
+Testei essa lógica com 5 cenários diferentes: vazio (usa padrão), número
+direto, nome parcial, nome inexistente (erro claro), e confirmei que um
+dispositivo de **saída** (alto-falante) nunca é confundido com entrada.
+
 ### Ajustando a sensibilidade
 Se ele disparar sozinho sem ninguém falando (falso positivo), aumente
 `WAKE_WORD_THRESHOLD` no `.env` (ex: `0.6` ou `0.7`). Se ele não te ouvir
@@ -460,6 +475,32 @@ dependências se já existirem, só refaz essa parte.
 
 Depois de configurado, reinicie o PC uma vez pra confirmar que sobe
 sozinho (procure o ícone na bandeja).
+
+## Escolhendo o microfone na interface web
+
+Na tela **Configurar** do app web, tem um seletor de microfone (só aparece
+os dispositivos de entrada de verdade, nunca alto-falantes) — útil se você
+tem mais de um microfone e o padrão do navegador não é o que você quer usar
+pro botão de gravar mensagem. Tem um botão de **"Testar microfone (3s)"**
+que grava por 3 segundos e mostra se captou som de verdade, sem precisar
+mandar nada pro JARVIS só pra confirmar que está funcionando.
+
+**Nota importante**: essa escolha vale só pro botão de microfone do app web
+— o listener "Hey JARVIS" (que roda separado, em segundo plano) usa sua
+própria configuração (`WAKE_WORD_INPUT_DEVICE` no `.env`, veja a seção
+acima), porque são dois programas diferentes acessando o áudio de formas
+diferentes.
+
+### Testado
+Simulei a lista de dispositivos e a seleção com dados falsos (já que não
+tenho hardware de áudio neste ambiente de desenvolvimento) — confirmei que
+só microfones (não alto-falantes) aparecem na lista, e que a escolha é
+salva corretamente. Encontrei e corrigi um bug real nesse processo: a
+variável do seletor estava sendo declarada depois do ponto onde a tela de
+configurações podia abrir automaticamente (isso acontece sempre que ainda
+não tem API key configurada — ou seja, exatamente na primeira instalação
+de qualquer pessoa) — sem a correção, a tela quebraria justo na primeira
+vez que alguém abrisse o JARVIS.
 
 ## Acessando do celular
 
