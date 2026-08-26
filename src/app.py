@@ -453,6 +453,8 @@ async def chat_media(
     """Nota: imagem não é suportada aqui porque a maioria dos modelos locais leves não tem visão.
     Áudio/vídeo funcionam via transcrição (Whisper local), igual antes."""
     text_parts = []
+    transcript_for_display = None
+
     if message.strip():
         text_parts.append(message)
 
@@ -461,6 +463,7 @@ async def chat_media(
         _check_size(raw, audio.filename)
         transcript = media.process_audio(raw, suffix=_suffix(audio.filename, ".wav"))
         text_parts.append(f"[Transcrição do áudio]: {transcript}")
+        transcript_for_display = transcript
 
     if video is not None:
         raw = await video.read()
@@ -469,13 +472,17 @@ async def chat_media(
         note = f"[Vídeo: {result['frame_count']} frame(s)"
         if result["transcript"]:
             note += f", áudio transcrito: {result['transcript']}"
+            transcript_for_display = result["transcript"]
         note += "] (nota: os frames de imagem não são enviados ao modelo local — só a transcrição do áudio)"
         text_parts.append(note)
 
     if not text_parts:
         raise HTTPException(status_code=400, detail="Envie ao menos texto ou áudio/vídeo.")
 
-    return _run_agent_turn(session_id, " ".join(text_parts))
+    result = _run_agent_turn(session_id, " ".join(text_parts))
+    if transcript_for_display:
+        result["transcript"] = transcript_for_display
+    return result
 
 
 def _check_size(raw: bytes, filename: str | None) -> None:

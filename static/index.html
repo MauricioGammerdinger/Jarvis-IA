@@ -602,7 +602,7 @@
     currentAbortController = new AbortController();
     input.value = "";
     input.style.height = "auto";
-    addLine("user", value || `[enviando ${pendingFile.name}]`);
+    const userMsgDiv = addLine("user", value || (pendingFile ? "🎤 transcrevendo áudio..." : ""));
     sendBtn.style.display = "none";
     stopBtn.style.display = "flex";
     setThinking(true);
@@ -628,6 +628,7 @@
           return;
         }
         const data = await res.json();
+        if (data.transcript) userMsgDiv.textContent = data.transcript; // troca o placeholder pelo que você disse de verdade
         addLine("assistant", data.reply || "(sem resposta)");
         speakIfEnabled(data.reply);
       } else {
