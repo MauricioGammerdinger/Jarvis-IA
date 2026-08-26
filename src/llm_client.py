@@ -27,7 +27,20 @@ client = OpenAI(
 # antes de responder — isso deixa a resposta mais lenta e, se vazar pro
 # texto final, poluído com um parágrafo de raciocínio interno que ninguém
 # pediu pra ver. Desligamos isso explicitamente.
-DISABLE_THINKING_EXTRA_BODY = {"think": False}
+#
+# `keep_alive` pede pro Ollama manter o modelo carregado na memória por mais
+# tempo entre uma pergunta e outra (padrão do Ollama: só 5 minutos, depois
+# descarrega e precisa recarregar do zero na próxima vez — isso é uma causa
+# comum de "às vezes demora muito"). ATENÇÃO: existe um bug conhecido no
+# Ollama onde esse parâmetro é IGNORADO quando vem pela API compatível com
+# OpenAI (github.com/ollama/ollama/issues/11458) — mandamos mesmo assim,
+# caso a versão instalada já tenha corrigido isso, mas a correção que
+# funciona de verdade, sempre, é configurar a variável de ambiente
+# OLLAMA_KEEP_ALIVE no Windows (veja o README).
+EXTRA_BODY_DEFAULTS = {
+    "think": False,
+    "keep_alive": os.environ.get("OLLAMA_MODEL_KEEP_ALIVE", "30m"),
+}
 
 _THINK_BLOCK_RE = re.compile(r"<think>[\s\S]*?</think>\s*", re.IGNORECASE)
 
@@ -78,7 +91,7 @@ def chat(messages: list[dict], tools: list[dict], system: str) -> dict:
         model=_get_model_name(),
         messages=full_messages,
         tools=to_openai_tool_schema(tools) if tools else None,
-        extra_body=DISABLE_THINKING_EXTRA_BODY,
+        extra_body=EXTRA_BODY_DEFAULTS,
     )
     message = response.choices[0].message
     tool_calls = []
@@ -129,7 +142,7 @@ def chat_stream(messages: list[dict], tools: list[dict], system: str):
         messages=full_messages,
         tools=to_openai_tool_schema(tools) if tools else None,
         stream=True,
-        extra_body=DISABLE_THINKING_EXTRA_BODY,
+        extra_body=EXTRA_BODY_DEFAULTS,
     )
 
     buffer = ""

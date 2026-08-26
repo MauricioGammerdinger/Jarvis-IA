@@ -622,6 +622,42 @@ a partir da duração) com a API do Google mockada, e o comportamento de
 "calendário não configurado ainda" avisando com clareza em vez de inventar
 eventos.
 
+## "Às vezes trava" ou demora muito — o Ollama descarregando o modelo
+
+Se o JARVIS demora muito (ou parece travar) só **de vez em quando**, não
+toda mensagem, o motivo mais provável é: o Ollama descarrega o modelo da
+memória depois de alguns minutos sem uso (padrão: 5 minutos). Na próxima
+pergunta, ele precisa recarregar tudo do zero — isso pode levar bem mais
+tempo que uma resposta normal, e some do timeout de 60s configurado.
+
+### A correção que funciona de verdade
+Tentamos resolver isso mandando `keep_alive` em cada chamada, mas
+**existe um bug conhecido do Ollama** que ignora esse parâmetro quando vem
+pela API compatível com OpenAI (que é como o JARVIS se comunica com ele) —
+[issue aberta no GitHub deles](https://github.com/ollama/ollama/issues/11458).
+Mandamos mesmo assim (caso a versão de vocês já tenha corrigido), mas a
+correção que **sempre** funciona é configurar isso no nível do sistema:
+
+**No Windows:**
+1. Abre o menu Iniciar → digita "variáveis de ambiente" → abre "Editar as
+   variáveis de ambiente do sistema"
+2. Clica em "Variáveis de Ambiente..."
+3. Em "Variáveis do usuário" (ou "Variáveis do sistema"), clica em "Novo..."
+4. Nome: `OLLAMA_KEEP_ALIVE`
+5. Valor: `30m` (ou `1h`, se quiser manter carregado por mais tempo)
+6. OK em tudo
+7. **Reinicia o Ollama** (clica com botão direito no ícone da bandeja →
+   Quit Ollama, depois abre ele de novo) — ele só lê essa variável na
+   hora que inicia, então precisa reiniciar pra valer
+
+### Testado
+Confirmei que o JARVIS manda `think: false` e `keep_alive: "30m"` juntos
+em toda chamada ao Ollama — testei capturando a chamada real (mockada) e
+conferindo os dois parâmetros presentes. O que **não** dá pra garantir
+daqui é se o Ollama de vocês realmente respeita o `keep_alive` vindo do
+JARVIS (por causa do bug citado) — por isso a configuração no Windows é
+a garantia de verdade.
+
 ## Modelos "raciocinadores" (Qwen3 e similares) — pensamento desligado
 
 Modelos como o `qwen3` "pensam em voz alta" antes de responder por padrão —
