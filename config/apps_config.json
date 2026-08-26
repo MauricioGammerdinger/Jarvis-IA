@@ -21,6 +21,14 @@
     "comando": "start com.epicgames.launcher://",
     "observacao": "URI oficial da Epic Games Launcher."
   },
+  "bloco de notas": {
+    "comando": "start notepad",
+    "observacao": "Notepad nativo do Windows — sempre disponível, não precisa de caminho especial."
+  },
+  "calculadora": {
+    "comando": "start calc",
+    "observacao": "Calculadora nativa do Windows."
+  },
 
   "riot client": {
     "comando": "start \"\" \"C:\\Riot Games\\Riot Client\\RiotClientServices.exe\"",

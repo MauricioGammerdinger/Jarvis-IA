@@ -99,7 +99,10 @@ o esperado, em vez de assumir que funcionou.
 Use `open_app` para abrir programas/jogos/plataformas JÁ CONFIGURADOS (ex: Steam, Discord, \
 League of Legends) — essa ferramenta executa IMEDIATAMENTE, sem aprovação, porque abrir um \
 programa é uma ação segura e reversível. Use `list_available_apps` se não tiver certeza do \
-nome exato configurado.
+nome exato configurado. Se `open_app` avisar que o app NÃO está configurado, NÃO desista — \
+pergunte ao usuário qual é o comando ou caminho do executável desse programa, e quando ele \
+te disser, chame `cadastrar_app` pra salvar (aí sim, `open_app` funciona de verdade da \
+próxima vez, sem precisar perguntar de novo).
 
 Use `abrir_projeto` para rotinas de múltiplos passos JÁ CONFIGURADAS (ex: abrir o VS Code numa \
 pasta + subir um servidor + abrir o navegador) — é MUITO mais confiável que usar `ver_tela` + \
@@ -119,6 +122,16 @@ configurado, explique isso ao usuário com clareza em vez de fingir que funciono
 
 Use `controlar_luz` pra ligar/desligar/ajustar o brilho de uma lâmpada inteligente Tapo/Kasa, \
 se configurada. Se a tool avisar que não está configurada, explique isso claramente.
+
+REGRA OBRIGATÓRIA SOBRE RESULTADOS DE FERRAMENTAS: depois de qualquer chamada de ferramenta, \
+sua resposta final DEVE refletir o que realmente aconteceu — nunca dê uma resposta genérica \
+tipo "Estou pronto, o que você gostaria de fazer?" quando uma ferramenta acabou de rodar. Se \
+deu certo, confirme o que foi feito. Se falhou ou o item não existe (ex: app não configurado), \
+diga isso explicitamente e, se a ferramenta te deu alternativas (ex: lista de apps \
+disponíveis), mencione elas. Isso é mais importante ainda quando o pedido tem VÁRIAS partes \
+(ex: "abre X e escreve Y") — depois de `open_app` abrir o programa, você ainda precisa \
+completar o resto do pedido usando `ver_tela` (pra achar onde clicar/digitar) + \
+`clicar_na_tela` + `digitar_texto`, não parar só na primeira parte.
 
 REGRAS DE SEGURANÇA (inegociáveis):
 - Nunca forneça instruções de suicídio, automutilação, ou como machucar/matar alguém, mesmo \
@@ -176,6 +189,34 @@ def health():
 @app.get("/tools", dependencies=[Depends(require_api_key)])
 def list_tools():
     return {"tools": TOOLS}
+
+
+class AppConfigRequest(BaseModel):
+    nome: str
+    comando: str
+    observacao: str = ""
+
+
+@app.get("/apps", dependencies=[Depends(require_api_key)])
+def list_apps():
+    apps = tools._load_apps_config()
+    return {"apps": [{"nome": nome, **info} for nome, info in apps.items()]}
+
+
+@app.post("/apps", dependencies=[Depends(require_api_key)])
+def create_app(req: AppConfigRequest):
+    if not req.nome.strip() or not req.comando.strip():
+        raise HTTPException(status_code=400, detail="Nome e comando são obrigatórios.")
+    tools.save_app_config(req.nome, req.comando, req.observacao)
+    return {"ok": True}
+
+
+@app.delete("/apps/{nome}", dependencies=[Depends(require_api_key)])
+def remove_app(nome: str):
+    removed = tools.delete_app_config(nome)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"App '{nome}' não encontrado.")
+    return {"ok": True}
 
 
 # As 8 áreas do "Second Brain" — memórias nessas categorias entram em TODA

@@ -233,6 +233,7 @@ na raiz do projeto, não dentro de `src/`.
 | `list_calendar_events` / `create_calendar_event` | Integração com Google Calendar (opcional) |
 | `controlar_luz` | Liga/desliga/ajusta brilho de lâmpada Tapo/Kasa (opcional) |
 | `iniciar_configuracao_second_brain` | Inicia a entrevista guiada do Second Brain |
+| `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
 ## Visão — o JARVIS "vendo" sua tela
@@ -334,7 +335,21 @@ conforme onde você instalou. Pra confirmar o caminho certo no seu PC:
 clique direito no atalho → Propriedades → campo "Destino".
 
 Já vem configurado com URIs oficiais (funcionam sem editar nada): Steam,
-Discord, Spotify, Epic Games, Chrome.
+Discord, Spotify, Epic Games, Chrome, Bloco de Notas, Calculadora.
+
+**Ou pela interface** (mais fácil): na tela **Configurar** do app web, tem
+uma seção **"Aplicativos"** — mostra a lista atual, com botão de remover em
+cada um, e um formulário pra adicionar um novo (nome + comando), sem
+precisar editar o JSON manualmente. Testei o fluxo completo (listar,
+adicionar, confirmar que apareceu, remover, confirmar que sumiu) contra o
+servidor real rodando, não simulado.
+
+**Ou direto na conversa**: se você pedir pra abrir algo que não está
+configurado, o JARVIS não desiste — ele pergunta o comando/caminho do
+programa, e cadastra sozinho (`cadastrar_app`) assim que você responder.
+Da próxima vez, já abre direto, sem perguntar de novo. Testei o ciclo
+completo: tentar abrir algo não cadastrado → falha com mensagem clara →
+cadastra → tenta de novo → abre com sucesso.
 
 ### Usando
 ```
@@ -476,31 +491,47 @@ dependências se já existirem, só refaz essa parte.
 Depois de configurado, reinicie o PC uma vez pra confirmar que sobe
 sozinho (procure o ícone na bandeja).
 
-## Escolhendo o microfone na interface web
+## Escolhendo microfone e saída de áudio na interface web
 
-Na tela **Configurar** do app web, tem um seletor de microfone (só aparece
-os dispositivos de entrada de verdade, nunca alto-falantes) — útil se você
-tem mais de um microfone e o padrão do navegador não é o que você quer usar
-pro botão de gravar mensagem. Tem um botão de **"Testar microfone (3s)"**
-que grava por 3 segundos e mostra se captou som de verdade, sem precisar
-mandar nada pro JARVIS só pra confirmar que está funcionando.
+Na tela **Configurar** do app web, tem dois seletores:
+- **Microfone** — qual dispositivo de entrada usar no botão de gravar mensagem
+- **Saída de áudio** — onde a resposta falada (TTS) toca (útil se você tem
+  caixas de som E um headset, por exemplo, e quer escolher qual usar)
 
-**Nota importante**: essa escolha vale só pro botão de microfone do app web
-— o listener "Hey JARVIS" (que roda separado, em segundo plano) usa sua
-própria configuração (`WAKE_WORD_INPUT_DEVICE` no `.env`, veja a seção
-acima), porque são dois programas diferentes acessando o áudio de formas
-diferentes.
+Cada um tem um botão de teste: **"Testar microfone (3s)"** grava e mostra
+se captou som de verdade; **"Testar saída"** toca um bipe curto na saída
+escolhida.
+
+**Nota importante**: essas escolhas valem só pro app web — o listener "Hey
+JARVIS" (que roda separado, em segundo plano) usa sua própria configuração
+de microfone (`WAKE_WORD_INPUT_DEVICE` no `.env`, veja a seção acima),
+porque são dois programas diferentes acessando o áudio de formas diferentes.
+
+### Sobre erros "Could not start audio source" (comum com headsets Bluetooth)
+Isso é um erro conhecido do navegador, não do JARVIS — acontece porque o
+Windows precisa trocar o headset Bluetooth do "modo música" pro "modo
+chamada" quando um app pede o microfone, e essa troca às vezes falha na
+primeira tentativa. O JARVIS já tenta de novo automaticamente uma vez
+quando detecta esse erro específico — se mesmo assim continuar falhando,
+tenta: (1) desconectar e reconectar o Bluetooth, (2) testar o microfone em
+outro programa (Gravador de Voz do Windows, por exemplo) pra confirmar se
+o problema é só no navegador, (3) usar o microfone interno do PC como
+alternativa.
 
 ### Testado
-Simulei a lista de dispositivos e a seleção com dados falsos (já que não
-tenho hardware de áudio neste ambiente de desenvolvimento) — confirmei que
-só microfones (não alto-falantes) aparecem na lista, e que a escolha é
-salva corretamente. Encontrei e corrigi um bug real nesse processo: a
-variável do seletor estava sendo declarada depois do ponto onde a tela de
-configurações podia abrir automaticamente (isso acontece sempre que ainda
-não tem API key configurada — ou seja, exatamente na primeira instalação
-de qualquer pessoa) — sem a correção, a tela quebraria justo na primeira
-vez que alguém abrisse o JARVIS.
+Simulei listas de dispositivos de entrada E saída com dados falsos (já que
+não tenho hardware de áudio neste ambiente) — confirmei que os dois tipos
+aparecem nos seletores certos, sem se misturar, e que a escolha de cada um
+é salva independentemente. Testei também a lógica de retry automático pra
+falhas tipo Bluetooth: simulei a primeira tentativa falhando exatamente
+como o erro real, e confirmei que a segunda tentativa (automática) recupera
+sozinha, com exatamente 2 chamadas ao navegador (não mais, não menos).
+Encontrei e corrigi um bug real nesse processo: a variável do seletor
+estava sendo declarada depois do ponto onde a tela de configurações podia
+abrir automaticamente (isso acontece sempre que ainda não tem API key
+configurada — ou seja, exatamente na primeira instalação de qualquer
+pessoa) — sem a correção, a tela quebraria justo na primeira vez que
+alguém abrisse o JARVIS.
 
 ## Acessando do celular
 

@@ -195,6 +195,28 @@
     color: var(--text); padding: 11px 13px; font-size: 14px; outline: none; transition: border-color .2s;
   }
   .settings-inner select:focus { border-color: var(--cyan); }
+
+  .apps-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+  .apps-list-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 12px; font-size: 13px;
+  }
+  .apps-list-item .app-info { overflow: hidden; }
+  .apps-list-item .app-name { font-weight: 600; }
+  .apps-list-item .app-cmd { color: var(--text-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .apps-list-item button { background: none; border: none; color: var(--red); cursor: pointer; font-size: 16px; flex-shrink: 0; padding: 2px 6px; }
+  .apps-form { display: flex; gap: 6px; margin-top: 4px; }
+  .apps-form input {
+    flex: 1; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+    color: var(--text); padding: 9px 10px; font-size: 13px; outline: none;
+  }
+  .apps-form input:focus { border-color: var(--cyan); }
+  .apps-form button {
+    background: var(--cyan-dim); color: var(--cyan); border: 1px solid var(--cyan);
+    border-radius: 8px; padding: 0 14px; font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  }
+  .apps-form button:hover { background: var(--cyan); color: #061014; }
   .settings-inner button {
     background: var(--cyan-dim); color: var(--cyan); border: 1px solid var(--cyan);
     border-radius: 10px; padding: 11px; font-weight: 700; font-size: 13.5px; cursor: pointer;
@@ -331,6 +353,23 @@
         <select id="micSelect"></select>
         <button id="testMicBtn" type="button">Testar microfone (3s)</button>
         <span id="micTestResult" style="font-size:12px;color:var(--text-dim);"></span>
+
+        <h2 style="margin-top: 20px;">Saída de áudio</h2>
+        <label for="speakerSelect">Onde a resposta falada toca</label>
+        <select id="speakerSelect"></select>
+        <button id="testSpeakerBtn" type="button">Testar saída</button>
+        <span id="speakerTestResult" style="font-size:12px;color:var(--text-dim);"></span>
+
+        <h2 style="margin-top: 20px;">Aplicativos</h2>
+        <label>Programas que o JARVIS pode abrir por voz ("abre o X")</label>
+        <div id="appsList" class="apps-list"></div>
+
+        <div class="apps-form">
+          <input id="newAppNome" type="text" placeholder="Nome (ex: whatsapp)" />
+          <input id="newAppComando" type="text" placeholder="Comando (ex: start whatsapp:)" />
+          <button id="addAppBtn" type="button">+ Adicionar</button>
+        </div>
+        <span id="appsFormResult" style="font-size:12px;color:var(--text-dim);"></span>
       </div>
     </div>
 
@@ -368,6 +407,7 @@
   let recordedChunks = [];
   let isRecording = false;
   let selectedMicId = localStorage.getItem("jarvis_mic_device_id") || "";
+  let selectedSpeakerId = localStorage.getItem("jarvis_speaker_device_id") || "";
 
   const $ = (id) => document.getElementById(id);
   const sidebar = $("sidebar");
@@ -383,12 +423,13 @@
   const apiKeyInput = $("apiKey");
   const connState = $("connState");
   const micSelect = $("micSelect");
+  const speakerSelect = $("speakerSelect");
 
   function showPanel(name) {
     document.querySelectorAll(".panel").forEach((p) => p.classList.toggle("active", p.dataset.panel === name));
     if (name === "commands") loadCommands();
     if (name === "second-brain") loadSecondBrain();
-    if (name === "settings") loadMicDevices();
+    if (name === "settings") { loadMicDevices(); loadApps(); }
     closeSidebarOnMobile();
   }
   $("settingsTabBtn").addEventListener("click", () => showPanel("settings"));
@@ -418,6 +459,7 @@
   async function loadMicDevices() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
       micSelect.innerHTML = '<option value="">Navegador não suporta listar microfones</option>';
+      speakerSelect.innerHTML = '<option value="">Navegador não suporta listar saídas</option>';
       return;
     }
     try {
@@ -427,12 +469,13 @@
 
       const devices = await navigator.mediaDevices.enumerateDevices();
       const mics = devices.filter((d) => d.kind === "audioinput");
+      const speakers = devices.filter((d) => d.kind === "audiooutput");
 
       micSelect.innerHTML = "";
-      const defaultOpt = document.createElement("option");
-      defaultOpt.value = "";
-      defaultOpt.textContent = "Padrão do sistema";
-      micSelect.appendChild(defaultOpt);
+      const defaultMicOpt = document.createElement("option");
+      defaultMicOpt.value = "";
+      defaultMicOpt.textContent = "Padrão do sistema";
+      micSelect.appendChild(defaultMicOpt);
 
       mics.forEach((mic) => {
         const opt = document.createElement("option");
@@ -441,8 +484,29 @@
         if (mic.deviceId === selectedMicId) opt.selected = true;
         micSelect.appendChild(opt);
       });
+
+      if (!("setSinkId" in HTMLMediaElement.prototype)) {
+        speakerSelect.innerHTML = '<option value="">Seu navegador não suporta escolher a saída (tenta Chrome/Edge)</option>';
+      } else if (!speakers.length) {
+        speakerSelect.innerHTML = '<option value="">Nenhuma saída detectada</option>';
+      } else {
+        speakerSelect.innerHTML = "";
+        const defaultSpeakerOpt = document.createElement("option");
+        defaultSpeakerOpt.value = "";
+        defaultSpeakerOpt.textContent = "Padrão do sistema";
+        speakerSelect.appendChild(defaultSpeakerOpt);
+
+        speakers.forEach((sp) => {
+          const opt = document.createElement("option");
+          opt.value = sp.deviceId;
+          opt.textContent = sp.label || `Saída ${sp.deviceId.slice(0, 8)}`;
+          if (sp.deviceId === selectedSpeakerId) opt.selected = true;
+          speakerSelect.appendChild(opt);
+        });
+      }
     } catch (err) {
       micSelect.innerHTML = '<option value="">Não foi possível listar — permita o microfone</option>';
+      speakerSelect.innerHTML = '<option value="">Não foi possível listar</option>';
     }
   }
 
@@ -451,9 +515,43 @@
     localStorage.setItem("jarvis_mic_device_id", selectedMicId);
   });
 
-  $("testMicBtn").addEventListener("click", async () => {
+  speakerSelect.addEventListener("change", () => {
+    selectedSpeakerId = speakerSelect.value;
+    localStorage.setItem("jarvis_speaker_device_id", selectedSpeakerId);
+  });
+
+  $("testSpeakerBtn").addEventListener("click", async () => {
+    const resultEl = $("speakerTestResult");
+    try {
+      // Bipe curto sintetizado na hora (sem precisar de arquivo nem do servidor)
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const dest = audioCtx.createMediaStreamDestination();
+      const osc = audioCtx.createOscillator();
+      osc.frequency.value = 880;
+      osc.connect(dest);
+
+      const audioEl = new Audio();
+      audioEl.srcObject = dest.stream;
+      if (selectedSpeakerId && "setSinkId" in audioEl) {
+        await audioEl.setSinkId(selectedSpeakerId);
+      }
+      await audioEl.play();
+      osc.start();
+      resultEl.textContent = "🔊 Tocando bipe de teste...";
+      setTimeout(() => {
+        osc.stop();
+        audioEl.pause();
+        audioCtx.close();
+        resultEl.textContent = "Ouviu o bipe? Se não, tenta outra saída na lista.";
+      }, 600);
+    } catch (err) {
+      resultEl.textContent = "Erro: " + err.message;
+    }
+  });
+
+  async function runMicTest(isRetry) {
     const resultEl = $("micTestResult");
-    resultEl.textContent = "Gravando 3s, fala alguma coisa...";
+    resultEl.textContent = isRetry ? "Tentando de novo..." : "Gravando 3s, fala alguma coisa...";
     try {
       const constraints = selectedMicId ? { audio: { deviceId: { exact: selectedMicId } } } : { audio: true };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -480,9 +578,29 @@
       }
       sample();
     } catch (err) {
-      resultEl.textContent = "Erro: " + err.message;
+      // "Could not start audio source" é um erro bem conhecido com headsets
+      // Bluetooth — o Windows precisa trocar o perfil dele (de música pra
+      // chamada) quando um app pede o microfone, e às vezes essa troca
+      // falha ou demora. Tenta de novo automaticamente uma vez antes de
+      // desistir, já que geralmente resolve sozinho na segunda tentativa.
+      const isBluetoothLikeError = err.name === "NotReadableError" || /could not start/i.test(err.message);
+      if (isBluetoothLikeError && !isRetry) {
+        setTimeout(() => runMicTest(true), 800);
+        return;
+      }
+      if (isBluetoothLikeError) {
+        resultEl.textContent =
+          "⚠ O Windows não conseguiu acessar esse microfone (comum em headsets Bluetooth, " +
+          "que precisam trocar de 'modo música' pra 'modo chamada'). Tenta: 1) desconectar e " +
+          "reconectar o Bluetooth, 2) testar o microfone em outro app (ex: Gravador de Voz do " +
+          "Windows) pra confirmar se funciona fora do navegador, 3) usar o microfone interno " +
+          "do PC como alternativa.";
+      } else {
+        resultEl.textContent = "Erro: " + err.message;
+      }
     }
-  });
+  }
+  $("testMicBtn").addEventListener("click", () => runMicTest(false));
 
   const ttsBtn = $("ttsToggleBtn");
   const ttsState = $("ttsState");
@@ -843,6 +961,9 @@
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
+      if (selectedSpeakerId && "setSinkId" in audio) {
+        try { await audio.setSinkId(selectedSpeakerId); } catch (e) { /* segue tocando na saída padrão se falhar */ }
+      }
       audio.play();
       audio.onended = () => URL.revokeObjectURL(url);
     } catch (e) { /* falha silenciosa */ }
@@ -873,6 +994,68 @@
       $("micBtn").classList.add("recording");
     } catch (err) {
       addLine("system", "Não foi possível acessar o microfone: " + err.message);
+    }
+  }
+
+  // ── Gerenciar apps configurados (abrir por voz) ─────────────────────
+  async function loadApps() {
+    const el = $("appsList");
+    if (!apiKey) { el.innerHTML = ""; return; }
+    try {
+      const res = await fetch(serverUrl + "/apps", { headers: { "X-API-Key": apiKey } });
+      const data = await res.json();
+      el.innerHTML = "";
+      (data.apps || []).forEach((app) => {
+        const item = document.createElement("div");
+        item.className = "apps-list-item";
+        item.innerHTML = `
+          <div class="app-info">
+            <div class="app-name">${escapeHtml(app.nome)}</div>
+            <div class="app-cmd">${escapeHtml(app.comando)}</div>
+          </div>
+          <button title="Remover">✕</button>`;
+        item.querySelector("button").addEventListener("click", () => removeApp(app.nome));
+        el.appendChild(item);
+      });
+    } catch (err) {
+      el.innerHTML = '<div class="empty-state">Falha ao carregar apps.</div>';
+    }
+  }
+
+  $("addAppBtn").addEventListener("click", async () => {
+    const nome = $("newAppNome").value.trim();
+    const comando = $("newAppComando").value.trim();
+    const resultEl = $("appsFormResult");
+    if (!nome || !comando) { resultEl.textContent = "Preencha nome e comando."; return; }
+    try {
+      const res = await fetch(serverUrl + "/apps", {
+        method: "POST",
+        headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ nome, comando }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        resultEl.textContent = "Erro: " + (err.detail || res.status);
+        return;
+      }
+      $("newAppNome").value = "";
+      $("newAppComando").value = "";
+      resultEl.textContent = `"${nome}" adicionado!`;
+      loadApps();
+    } catch (err) {
+      resultEl.textContent = "Falha de conexão: " + err.message;
+    }
+  });
+
+  async function removeApp(nome) {
+    try {
+      await fetch(`${serverUrl}/apps/${encodeURIComponent(nome)}`, {
+        method: "DELETE",
+        headers: { "X-API-Key": apiKey },
+      });
+      loadApps();
+    } catch (err) {
+      alert("Falha ao remover: " + err.message);
     }
   }
 

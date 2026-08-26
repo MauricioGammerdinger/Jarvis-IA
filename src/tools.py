@@ -75,6 +75,33 @@ def _load_apps_config() -> dict:
     data.pop("_comentario", None)
     return data
 
+
+def save_app_config(nome: str, comando: str, observacao: str = "") -> None:
+    """Adiciona (ou atualiza) uma entrada em apps_config.json, sem apagar as outras."""
+    if APPS_CONFIG_PATH.exists():
+        with open(APPS_CONFIG_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+    else:
+        data = {}
+    data[nome.strip().lower()] = {"comando": comando, "observacao": observacao}
+    with open(APPS_CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def delete_app_config(nome: str) -> bool:
+    """Remove uma entrada de apps_config.json. Devolve True se removeu, False se não existia."""
+    if not APPS_CONFIG_PATH.exists():
+        return False
+    with open(APPS_CONFIG_PATH, encoding="utf-8") as f:
+        data = json.load(f)
+    key = nome.strip().lower()
+    if key not in data:
+        return False
+    del data[key]
+    with open(APPS_CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    return True
+
 TOOLS = [
     {
         "name": "remember",
@@ -375,6 +402,25 @@ TOOLS = [
         ),
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "cadastrar_app",
+        "description": (
+            "Cadastra um app/programa novo na lista de coisas que o JARVIS pode abrir por voz "
+            "(open_app). USE quando `open_app` falhar avisando que o app não está configurado "
+            "E o usuário te der (ou você souber) o comando certo pra abrir esse programa. NÃO "
+            "invente um comando — se não souber o comando certo, pergunte ao usuário (ex: "
+            "'qual é o comando ou caminho do executável desse programa?') antes de chamar essa "
+            "tool. Depois de cadastrar, o app já pode ser aberto normalmente por open_app."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nome": {"type": "string", "description": "Nome do app, como o usuário vai falar pra abrir (ex: 'photoshop')."},
+                "comando": {"type": "string", "description": "Comando de shell pra abrir (ex: 'start photoshop', ou o caminho completo do .exe entre aspas)."},
+            },
+            "required": ["nome", "comando"],
+        },
+    },
 ]
 
 
@@ -497,6 +543,13 @@ def execute_tool(name: str, tool_input: dict) -> str:
             "vários projetos), salve uma memória separada pra cada. No final das 8 áreas, "
             "resuma o que foi salvo."
         )
+
+    if name == "cadastrar_app":
+        try:
+            save_app_config(tool_input["nome"], tool_input["comando"])
+            return f"App '{tool_input['nome']}' cadastrado com sucesso. Já pode ser aberto normalmente."
+        except Exception as e:
+            return f"Erro ao cadastrar o app: {e}"
 
     return f"Ferramenta desconhecida: {name}"
 
