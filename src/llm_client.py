@@ -15,7 +15,12 @@ import os
 
 from openai import OpenAI
 
-client = OpenAI(base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1"), api_key="ollama")
+client = OpenAI(
+    base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
+    api_key="ollama",
+    timeout=float(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "60")),  # sem isso, uma trava no Ollama prendia o JARVIS pra sempre
+    max_retries=1,  # a biblioteca tenta de novo antes de desistir — sem limitar isso, o timeout real vira timeout×tentativas
+)
 
 
 def _get_model_name() -> str:
