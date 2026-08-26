@@ -13,7 +13,11 @@ Pré-requisito: Ollama instalado e rodando, com o modelo baixado
 """
 
 import json
+import logging
 import os
+import time
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -36,6 +40,29 @@ import media
 import tts
 import tools
 from tools import TOOLS, execute_approved_command, execute_tool
+
+# ── Logging — grava em arquivo (logs/jarvis.log) além do terminal. Se algo
+# der errado (ex: resposta não chega), esse arquivo mostra exatamente onde
+# travou, com timestamp e erro completo, em vez de só "não sei o que houve".
+LOG_DIR = Path(__file__).parent.parent / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+
+logger = logging.getLogger("jarvis")
+logger.setLevel(logging.DEBUG)
+logger.propagate = False
+
+if not logger.handlers:
+    file_handler = RotatingFileHandler(
+        LOG_DIR / "jarvis.log", maxBytes=5_000_000, backupCount=3, encoding="utf-8"
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    logger.addHandler(file_handler)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    logger.addHandler(console_handler)
 
 API_KEY = os.environ.get("JARVIS_API_KEY", "")
 MAX_UPLOAD_MB = 40
@@ -114,6 +141,14 @@ REGRAS DE SEGURANÇA (inegociáveis):
 
 app = FastAPI(title="J.A.R.V.I.S. Local", version="1.0")
 db.init_db()
+
+logger.info("=" * 60)
+logger.info("J.A.R.V.I.S. iniciando...")
+logger.info(f"Modelo configurado: {os.environ.get('JARVIS_MODEL', '(não definido, usará qwen3:8b)')}")
+logger.info(f"Endereço do Ollama: {os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434/v1')}")
+logger.info(f"Timeout configurado: {os.environ.get('OLLAMA_TIMEOUT_SECONDS', '60')}s")
+logger.info(f"Arquivo de log: {LOG_DIR / 'jarvis.log'}")
+logger.info("=" * 60)
 
 if not API_KEY:
     raise RuntimeError("Defina JARVIS_API_KEY no .env antes de iniciar.")
@@ -270,6 +305,7 @@ def _execute_tool_call(call: dict, history: list[dict]) -> dict | None:
 
 
 def _run_agent_turn(session_id: str, user_text: str) -> dict:
+    logger.info(f"[chat] session={session_id} | mensagem='{user_text[:80]}'")
     history = db.get_history(session_id)
     history.append({"role": "user", "content": user_text})
     system = _build_system_prompt(user_text)
@@ -279,20 +315,34 @@ def _run_agent_turn(session_id: str, user_text: str) -> dict:
     MAX_TOOL_ITERATIONS = 20
 
     try:
-        for _ in range(MAX_TOOL_ITERATIONS):
+        for i in range(MAX_TOOL_ITERATIONS):
+            t0 = time.monotonic()
+            logger.debug(f"[chat] session={session_id} | iteração {i+1}/{MAX_TOOL_ITERATIONS} — chamando o modelo...")
             result = llm_client.chat(history, TOOLS, system)
+            duracao = time.monotonic() - t0
+            logger.info(
+                f"[chat] session={session_id} | modelo respondeu em {duracao:.1f}s "
+                f"| tool_calls={[c['name'] for c in result['tool_calls']]}"
+            )
 
             if not result["tool_calls"]:
                 db.append_message(session_id, "user", user_text)
                 db.append_message(session_id, "assistant", result["text"])
+                logger.info(f"[chat] session={session_id} | concluído, resposta com {len(result['text'])} caracteres")
                 return {"reply": result["text"], "session_id": session_id}
 
             history.append(result["raw_message"])
             for call in result["tool_calls"]:
+                t_tool = time.monotonic()
                 _execute_tool_call(call, history)
+                logger.info(
+                    f"[chat] session={session_id} | tool '{call['name']}' executada em "
+                    f"{time.monotonic() - t_tool:.1f}s"
+                )
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception(f"[chat] session={session_id} | ERRO ao falar com o Ollama")
         raise HTTPException(
             status_code=502,
             detail=(
@@ -302,6 +352,7 @@ def _run_agent_turn(session_id: str, user_text: str) -> dict:
             ),
         )
 
+    logger.warning(f"[chat] session={session_id} | limite de {MAX_TOOL_ITERATIONS} chamadas de ferramenta atingido")
     raise HTTPException(
         status_code=500,
         detail=(
@@ -322,6 +373,7 @@ def chat(req: ChatRequest, request: Request):
 @limiter.limit("30/minute")
 def chat_stream(req: ChatRequest, request: Request):
     def event_stream():
+        logger.info(f"[stream] session={req.session_id} | mensagem='{req.message[:80]}'")
         history = db.get_history(req.session_id)
         history.append({"role": "user", "content": req.message})
         system = _build_system_prompt(req.message)
@@ -330,26 +382,39 @@ def chat_stream(req: ChatRequest, request: Request):
         MAX_TOOL_ITERATIONS = 20
 
         try:
-            for _ in range(MAX_TOOL_ITERATIONS):
+            for i in range(MAX_TOOL_ITERATIONS):
                 # Primeiro verifica (sem stream) se o modelo vai chamar uma tool —
                 # streaming e tool-calling juntos são frágeis em modelos locais.
+                t0 = time.monotonic()
+                logger.debug(f"[stream] session={req.session_id} | iteração {i+1}/{MAX_TOOL_ITERATIONS} — chamando o modelo (probe)...")
                 probe = llm_client.chat(history, TOOLS, system)
+                logger.info(
+                    f"[stream] session={req.session_id} | probe respondeu em {time.monotonic() - t0:.1f}s "
+                    f"| tool_calls={[c['name'] for c in probe['tool_calls']]}"
+                )
                 if probe["tool_calls"]:
                     history.append(probe["raw_message"])
                     for call in probe["tool_calls"]:
                         label = _tool_activity_label(call["name"], call["arguments"])
                         yield f"event: tool\ndata: {json.dumps({'name': call['name'], 'label': label})}\n\n"
 
+                        t_tool = time.monotonic()
                         meta = _execute_tool_call(call, history)
+                        logger.info(f"[stream] session={req.session_id} | tool '{call['name']}' em {time.monotonic() - t_tool:.1f}s")
                         if meta and meta.get("screenshot_b64"):
                             yield f"event: screenshot\ndata: {json.dumps({'image': meta['screenshot_b64']})}\n\n"
                     continue
 
                 # Sem tool call: agora sim streama a resposta final de verdade.
+                t_stream = time.monotonic()
                 full_text = ""
                 for chunk in llm_client.chat_stream(history, TOOLS, system):
                     full_text += chunk
                     yield f"data: {json.dumps(chunk)}\n\n"
+                logger.info(
+                    f"[stream] session={req.session_id} | streaming final levou "
+                    f"{time.monotonic() - t_stream:.1f}s, {len(full_text)} caracteres"
+                )
                 db.append_message(req.session_id, "user", req.message)
                 db.append_message(req.session_id, "assistant", full_text)
                 yield "event: done\ndata: {}\n\n"
@@ -359,11 +424,13 @@ def chat_stream(req: ChatRequest, request: Request):
                 f"Limite de {MAX_TOOL_ITERATIONS} chamadas de ferramenta atingido nesta "
                 f"resposta. Tente pedir a tarefa em partes menores."
             )
+            logger.warning(f"[stream] session={req.session_id} | {error_detail}")
             yield f"event: error\ndata: {json.dumps({'detail': error_detail})}\n\n"
         except Exception as e:
             # Sem isso, qualquer falha ao falar com o Ollama (não está rodando,
             # modelo não baixado, endereço errado) derrubava a conexão sem
             # explicação nenhuma pro navegador (aparecia só como erro de rede).
+            logger.exception(f"[stream] session={req.session_id} | ERRO ao falar com o Ollama")
             error_msg = (
                 f"Falha ao falar com o Ollama: {e}. Confirme que ele está rodando "
                 f"(comando 'ollama list' no terminal) e que o modelo em JARVIS_MODEL "

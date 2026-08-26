@@ -12,6 +12,7 @@ geralmente já roda sozinho depois de instalado), com o modelo já baixado
 
 import json
 import os
+import re
 
 from openai import OpenAI
 
@@ -21,6 +22,20 @@ client = OpenAI(
     timeout=float(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "60")),  # sem isso, uma trava no Ollama prendia o JARVIS pra sempre
     max_retries=1,  # a biblioteca tenta de novo antes de desistir — sem limitar isso, o timeout real vira timeout×tentativas
 )
+
+# Modelos "raciocinadores" (Qwen3 e outros) por padrão "pensam em voz alta"
+# antes de responder — isso deixa a resposta mais lenta e, se vazar pro
+# texto final, poluído com um parágrafo de raciocínio interno que ninguém
+# pediu pra ver. Desligamos isso explicitamente.
+DISABLE_THINKING_EXTRA_BODY = {"think": False}
+
+_THINK_BLOCK_RE = re.compile(r"<think>[\s\S]*?</think>\s*", re.IGNORECASE)
+
+
+def _strip_thinking(text: str) -> str:
+    """Remove qualquer bloco <think>...</think> que ainda vaze na resposta,
+    mesmo com think:false pedido — proteção extra, caso o modelo ignore o parâmetro."""
+    return _THINK_BLOCK_RE.sub("", text or "").strip()
 
 
 def _get_model_name() -> str:
@@ -63,6 +78,7 @@ def chat(messages: list[dict], tools: list[dict], system: str) -> dict:
         model=_get_model_name(),
         messages=full_messages,
         tools=to_openai_tool_schema(tools) if tools else None,
+        extra_body=DISABLE_THINKING_EXTRA_BODY,
     )
     message = response.choices[0].message
     tool_calls = []
@@ -75,10 +91,24 @@ def chat(messages: list[dict], tools: list[dict], system: str) -> dict:
             tool_calls.append({"id": tc.id, "name": tc.function.name, "arguments": args})
 
     return {
-        "text": message.content or "",
+        "text": _strip_thinking(message.content or ""),
         "tool_calls": tool_calls,
         "raw_message": message.model_dump(),
     }
+
+
+def _partial_tag_suffix_len(buffer: str, tag: str) -> int:
+    """
+    Detecta se o FIM do buffer pode ser o INÍCIO de uma tag ainda incompleta
+    (ex: o chunk terminou bem no meio de "<think>", só chegou "<thi").
+    Sem isso, filtrar tag por tag entre pedaços de streaming quebraria a
+    tag ao meio e deixaria ela vazar sem querer.
+    """
+    max_check = min(len(tag) - 1, len(buffer))
+    for length in range(max_check, 0, -1):
+        if buffer.endswith(tag[:length]):
+            return length
+    return 0
 
 
 def chat_stream(messages: list[dict], tools: list[dict], system: str):
@@ -88,6 +118,10 @@ def chat_stream(messages: list[dict], tools: list[dict], system: str):
     chama essa função deve, nesse caso, cair de volta pra `chat()` normal
     pra pegar o tool_call estruturado (streaming + tool call juntos é mais
     frágil em modelos locais, então simplificamos assim).
+
+    Filtra qualquer bloco <think>...</think> (raciocínio interno de modelos
+    como Qwen3) ANTES de repassar pro chamador — mesmo que a tag venha
+    picada em pedaços diferentes entre um chunk e outro.
     """
     full_messages = [{"role": "system", "content": system}] + messages
     stream = client.chat.completions.create(
@@ -95,8 +129,44 @@ def chat_stream(messages: list[dict], tools: list[dict], system: str):
         messages=full_messages,
         tools=to_openai_tool_schema(tools) if tools else None,
         stream=True,
+        extra_body=DISABLE_THINKING_EXTRA_BODY,
     )
+
+    buffer = ""
+    in_think = False
+
     for chunk in stream:
         delta = chunk.choices[0].delta
-        if delta.content:
-            yield delta.content
+        if not delta.content:
+            continue
+        buffer += delta.content
+
+        while True:
+            if not in_think:
+                idx = buffer.find("<think>")
+                if idx == -1:
+                    safe_len = len(buffer) - _partial_tag_suffix_len(buffer, "<think>")
+                    if safe_len > 0:
+                        yield buffer[:safe_len]
+                        buffer = buffer[safe_len:]
+                    break
+                if idx > 0:
+                    yield buffer[:idx]
+                buffer = buffer[idx + len("<think>"):]
+                in_think = True
+            else:
+                idx = buffer.find("</think>")
+                if idx == -1:
+                    # Pode ser que só uma PARTE de "</think>" tenha chegado
+                    # nesse chunk (ex: "</th"), com o resto vindo no próximo.
+                    # Guarda essa parte, descarta o resto (é conteúdo de
+                    # pensamento mesmo, sem essa proteção o fechamento nunca
+                    # seria detectado se viesse picado).
+                    partial = _partial_tag_suffix_len(buffer, "</think>")
+                    buffer = buffer[len(buffer) - partial:] if partial > 0 else ""
+                    break
+                buffer = buffer[idx + len("</think>"):]
+                in_think = False
+
+    if buffer and not in_think:
+        yield buffer

@@ -512,6 +512,45 @@ trás que permite atualizar sem perder configurações. Se você (ou alguém
 que baixou) pegou via `.zip`, a recomendação é clonar via git desde o
 início, exatamente pra ter esse caminho de atualização mais fácil.
 
+## Diagnosticando problemas — arquivo de log
+
+Se uma resposta não chegar, demorar muito, ou der erro sem explicação clara,
+o JARVIS agora grava um log detalhado em `logs/jarvis.log` — com timestamp e
+duração de cada etapa (busca de memória, chamada ao modelo, cada ferramenta
+usada), e o erro completo (com traceback) se algo falhar.
+
+### Como usar pra diagnosticar
+1. Reproduz o problema (manda a mensagem que travou/demorou)
+2. Abre `logs/jarvis.log` (fica na raiz do projeto)
+3. As últimas linhas mostram exatamente onde o tempo foi gasto — ex:
+   ```
+   [chat] session=xyz | mensagem='oi jarvis'
+   [embeddings] Carregando modelo pela primeira vez (timeout de 10.0s)...
+   [embeddings] Timeout de 10.0s ao carregar modelo...
+   [chat] session=xyz | iteração 1/20 — chamando o modelo...
+   [chat] session=xyz | modelo respondeu em 3.2s | tool_calls=[]
+   [chat] session=xyz | concluído, resposta com 142 caracteres
+   ```
+
+### Dois timeouts que existem por causa disso
+Descobri dois lugares que podiam travar por tempo indefinido (ou bem mais
+que o razoável) sem timeout nenhum configurado — os dois agora têm limite:
+- `OLLAMA_TIMEOUT_SECONDS` (padrão 60s) — quanto esperar o Ollama responder
+- `EMBEDDINGS_TIMEOUT_SECONDS` (padrão 10s) — quanto esperar o modelo de
+  busca de memória baixar na primeira vez (isso sozinho podia levar até 40s
+  antes, por causa de uma lógica de retry interna da biblioteca que ignora
+  configurações normais de timeout — tive que forçar um limite de verdade
+  rodando o carregamento numa thread separada)
+
+### Testado de verdade
+Simulei os dois cenários de trava (servidor que aceita conexão mas nunca
+responde, e rede sem acesso ao Hugging Face) e confirmei os tempos reais:
+o Ollama desiste em ~7s com timeout de 3s configurado (ao invés de nunca);
+os embeddings desistem em ~5,5s com timeout de 5s configurado (ao invés de
+~39s, que é o que a biblioteca levaria sozinha). No fluxo completo, uma
+mensagem que antes podia demorar 40+ segundos só nessa parte agora resolve
+em poucos segundos.
+
 ## Limitações desta versão (comparado à versão que usava Claude)
 
 - **Visão via `ver_tela` funciona, mas depende do modelo** — só com modelos
@@ -577,6 +616,24 @@ verdade: a lógica de criação de evento (cálculo de horário de início/fim
 a partir da duração) com a API do Google mockada, e o comportamento de
 "calendário não configurado ainda" avisando com clareza em vez de inventar
 eventos.
+
+## Modelos "raciocinadores" (Qwen3 e similares) — pensamento desligado
+
+Modelos como o `qwen3` "pensam em voz alta" antes de responder por padrão —
+isso deixa a resposta mais lenta e, se vazasse pro chat, apareceria como um
+parágrafo de raciocínio interno confuso antes da resposta de verdade. O
+JARVIS já desliga isso automaticamente (parâmetro `think: false` em toda
+chamada ao Ollama), com uma proteção extra que filtra qualquer bloco de
+pensamento que ainda vaze — inclusive quando as tags de abertura/fechamento
+chegam **picadas entre pedaços diferentes** do streaming (testei esse
+cenário específico, incluindo múltiplos blocos de pensamento na mesma
+resposta — todos filtrados corretamente).
+
+Se notar respostas mais lentas que o esperado com modelos raciocinadores,
+isso já está mitigado — mas a "espessura" do raciocínio interno ainda
+consome processamento mesmo desligado da exibição, então modelos desse
+tipo tendem a ser um pouco mais lentos por natureza que modelos sem essa
+capacidade.
 
 ## Rotinas de projeto — "abrir projeto" com um comando de voz
 

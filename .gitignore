@@ -8,6 +8,9 @@ token.json
 *.db
 *.db-journal
 
+# Logs de execução (locais, não fazem parte do código)
+logs/
+
 # Python
 __pycache__/
 *.pyc

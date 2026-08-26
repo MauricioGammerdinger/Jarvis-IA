@@ -14,11 +14,18 @@ Na primeira chamada, baixa o modelo automaticamente (precisa de internet
 nesse momento único); depois disso funciona 100% offline.
 """
 
+import concurrent.futures
 import json
+import logging
 import math
+import os
+import time
+
+logger = logging.getLogger("jarvis")  # mesmo logger do app.py — vai pro mesmo arquivo de log
 
 _embedding_model = None
-_model_unavailable = False  # evita tentar baixar de novo (e travar por ~40s) a cada chamada, se já falhou uma vez
+_model_unavailable = False  # evita tentar baixar de novo a cada chamada, se já falhou uma vez
+_download_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 
@@ -27,12 +34,33 @@ def _get_model():
     if _model_unavailable:
         raise RuntimeError("Modelo de embeddings indisponível nesta execução (falhou antes; reinicie o servidor pra tentar de novo).")
     if _embedding_model is None:
-        try:
-            from fastembed import TextEmbedding
+        t0 = time.monotonic()
+        timeout_s = float(os.environ.get("EMBEDDINGS_TIMEOUT_SECONDS", "10"))
+        logger.info(f"[embeddings] Carregando modelo pela primeira vez (timeout de {timeout_s}s)...")
 
-            _embedding_model = TextEmbedding(model_name=MODEL_NAME)
+        # Roda numa thread separada com timeout DE VERDADE — o fastembed tem sua
+        # própria lógica de retry com backoff (3s+9s+27s = ~39s) que ignora
+        # parâmetros de timeout normais; isso aqui desiste na hora certa não
+        # importa o que a biblioteca esteja fazendo por baixo dos panos.
+        from fastembed import TextEmbedding
+
+        future = _download_executor.submit(TextEmbedding, model_name=MODEL_NAME)
+        try:
+            _embedding_model = future.result(timeout=timeout_s)
+            logger.info(f"[embeddings] Modelo carregado em {time.monotonic() - t0:.1f}s")
+        except concurrent.futures.TimeoutError:
+            _model_unavailable = True
+            logger.warning(
+                f"[embeddings] Timeout de {timeout_s}s ao carregar modelo (provável rede lenta/bloqueada "
+                f"pro Hugging Face). A busca de memória vai usar só palavra-chave pelo resto desta execução."
+            )
+            raise RuntimeError(f"Timeout de {timeout_s}s ao carregar modelo de embeddings.")
         except Exception as e:
             _model_unavailable = True
+            logger.warning(
+                f"[embeddings] Falha ao carregar modelo depois de {time.monotonic() - t0:.1f}s: {e}. "
+                f"A busca de memória vai usar só palavra-chave (sem entender sinônimos) pelo resto desta execução."
+            )
             raise
     return _embedding_model
 
@@ -101,12 +129,15 @@ def smart_search(query: str, limit: int = 5) -> list[dict]:
     """
     import database as db
 
+    t0 = time.monotonic()
     try:
         query_vector = embed_text(query)
         candidates = db.all_memories_with_embeddings()
         if candidates:
-            return rank_by_similarity(query_vector, candidates, limit=limit)
-    except Exception:
-        pass
+            results = rank_by_similarity(query_vector, candidates, limit=limit)
+            logger.debug(f"[embeddings] smart_search (via embeddings) levou {time.monotonic() - t0:.1f}s")
+            return results
+    except Exception as e:
+        logger.debug(f"[embeddings] smart_search caiu pro fallback de palavra-chave depois de {time.monotonic() - t0:.1f}s: {e}")
     # Fallback: palavra-chave normal
     return db.search_memories(query, limit=limit)
