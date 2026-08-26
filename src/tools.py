@@ -365,6 +365,16 @@ TOOLS = [
             "required": ["acao"],
         },
     },
+    {
+        "name": "iniciar_configuracao_second_brain",
+        "description": (
+            "Inicia a entrevista guiada de configuração do Second Brain. USE quando o usuário "
+            "pedir explicitamente pra 'configurar', 'montar' ou 'começar' o Second Brain. Essa "
+            "tool devolve as instruções exatas de como conduzir a entrevista — siga elas à "
+            "risca depois de chamar."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -473,6 +483,20 @@ def execute_tool(name: str, tool_input: dict) -> str:
         if acao == "brilho":
             return smart_light.set_brightness(tool_input.get("brilho_percentual", 100))
         return f"Ação de luz desconhecida: {acao}"
+
+    if name == "iniciar_configuracao_second_brain":
+        return (
+            "Comece a entrevista agora. Explique rapidamente que você vai perguntar sobre "
+            "8 áreas da vida da pessoa, uma por vez, e que ela pode dizer 'pula' pra pular "
+            "qualquer uma. Depois, faça a PRIMEIRA pergunta, sobre a área 'voce': pergunte "
+            "quem ela é, idade, o que faz, onde mora. NÃO pergunte todas as áreas de uma vez "
+            "— só essa primeira. Depois que ela responder, salve com `remember` (category="
+            "'voce') e siga pra próxima área nessa ordem: metas, carreira, projetos, "
+            "financas, aprendizado, saude, relacoes — sempre uma pergunta por vez, esperando "
+            "a resposta antes de continuar. Se ela mencionar vários itens numa área (ex: "
+            "vários projetos), salve uma memória separada pra cada. No final das 8 áreas, "
+            "resuma o que foi salvo."
+        )
 
     return f"Ferramenta desconhecida: {name}"
 

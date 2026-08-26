@@ -232,6 +232,7 @@ na raiz do projeto, não dentro de `src/`.
 | `clicar_na_tela` / `digitar_texto` / `pressionar_tecla` | Controle de mouse/teclado — **AÇÃO REAL, veja avisos abaixo** |
 | `list_calendar_events` / `create_calendar_event` | Integração com Google Calendar (opcional) |
 | `controlar_luz` | Liga/desliga/ajusta brilho de lâmpada Tapo/Kasa (opcional) |
+| `iniciar_configuracao_second_brain` | Inicia a entrevista guiada do Second Brain |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
 ## Visão — o JARVIS "vendo" sua tela
@@ -751,7 +752,13 @@ JARVIS "só saber" coisas sobre você, sem precisar você reforçar toda hora.
 ### Como preencher
 Duas formas, as duas funcionam:
 - **Entrevista guiada**: peça "configura meu Second Brain" — o JARVIS
-  pergunta uma área por vez, aceita "pula", e salva cada resposta sozinho
+  pergunta uma área por vez, aceita "pula", e salva cada resposta sozinho.
+  ⚠️ Isso usa uma tool dedicada (`iniciar_configuracao_second_brain`) em vez
+  de só uma instrução solta no prompt — modelos locais menores seguem uma
+  tool específica de forma bem mais confiável que uma regra escrita em
+  meio a um prompt gigante com 18+ ferramentas descritas. Testei o fluxo
+  completo (chamar a tool → receber a instrução → fazer a primeira
+  pergunta certa) simulando a resposta do modelo.
 - **Naturalmente**: mencione algo relevante numa conversa normal (ex: "estou
   aprendendo espanhol") — o JARVIS reconhece que isso se encaixa numa das 8
   áreas e oferece salvar lá
