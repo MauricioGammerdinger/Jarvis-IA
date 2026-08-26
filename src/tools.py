@@ -84,8 +84,11 @@ TOOLS = [
             "JARVIS). USE quando o usuário disser algo como 'lembra que...', 'anota que...', "
             "'não esquece que...', ou mencionar uma preferência/fato sobre si mesmo de forma "
             "natural (ex: 'eu prefiro café sem açúcar', 'meu aniversário é dia X'). "
-            "NÃO use pra fatos genéricos sem relação com o usuário, nem pra pedidos de ação "
-            "(isso não é uma lista de tarefas, é memória de longo prazo)."
+            "CATEGORIAS ESPECIAIS DO SECOND BRAIN (entram em TODA conversa, sempre — use "
+            "esses nomes exatos quando aplicável): voce, metas, carreira, projetos, "
+            "financas, aprendizado, saude, relacoes. Pra qualquer outra coisa, use uma "
+            "categoria livre (ex: preferencia). NÃO use pra fatos genéricos sem relação com "
+            "o usuário, nem pra pedidos de ação (isso não é uma lista de tarefas)."
         ),
         "input_schema": {
             "type": "object",
@@ -94,7 +97,7 @@ TOOLS = [
                     "type": "string",
                     "description": "O fato a lembrar, escrito de forma clara e independente de contexto (ex: 'Usuário prefere café sem açúcar', não só 'sem açúcar').",
                 },
-                "category": {"type": "string", "description": "Categoria (pessoal, preferencia, projeto, trabalho...)."},
+                "category": {"type": "string", "description": "Categoria do Second Brain (voce/metas/carreira/projetos/financas/aprendizado/saude/relacoes) ou uma categoria livre."},
             },
             "required": ["content"],
         },
