@@ -175,6 +175,10 @@ jarvis-ia/
 │   ├── email_hub.py                                  # Central de E-mails (IMAP + triagem)
 │   ├── news_radar.py                                 # Radar de Notícias (RSS)
 │   ├── morning_digest.py                             # Morning Digest (junta os 3 acima)
+│   ├── background_agents.py                          # Agendador dos agentes de fundo
+│   ├── code_editor.py                                 # Leitura/edição de código (sem restrição)
+│   ├── git_projects.py                                # Status do git dos projetos cadastrados
+│   ├── ai_tokens.py                                    # Dashboard de Tokens de IA (custo + cota)
 │   ├── wake_word_listener.py                   # "Hey JARVIS" — ativação por voz
 │   └── tray_app.py                               # Ícone na bandeja do sistema
 │
@@ -241,6 +245,10 @@ na raiz do projeto, não dentro de `src/`.
 | `ver_emails` / `atualizar_emails` | Central de E-mails (triagem em Ação/Info/Ruído) |
 | `ver_noticias` / `gerenciar_assuntos_noticia` | Radar de Notícias (RSS, grátis) |
 | `gerar_morning_digest` | Briefing matinal falado, junta os 3 módulos acima |
+| `ler_arquivo_codigo` / `editar_arquivo_codigo` / `listar_pasta_codigo` | Leitura/edição de código, sem restrição de pasta |
+| `cadastrar_projeto_codigo` / `status_git_projeto` | Projetos aparecem no Painel de Agentes com status do git |
+| `registrar_uso_ia` / `ver_custo_ia` | Gasto de API de IA, custo calculado, orçamento |
+| `cadastrar_assinatura_ia` / `registrar_uso_assinatura` / `ver_assinaturas_ia` | Cota de assinaturas (Claude/ChatGPT/Cursor) |
 | `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
@@ -984,6 +992,186 @@ código). Corrigi separando "desenhar a estrutura" (só quando os dados
 mudam, a cada fetch) de "animar" (só atualiza atributos dos elementos
 que já existem, nunca recria nada) — depois da correção, testei o
 clique de novo e confirmei que funciona sem nenhum truque.
+
+## Código — o JARVIS lendo, editando e acompanhando seus projetos
+
+"À la Tony Stark": peça pro JARVIS abrir um projeto (`abrir_projeto`, já
+existente — abre o VS Code de verdade), e depois analisar ou editar
+arquivos por voz. Como o VS Code recarrega sozinho quando um arquivo muda
+por fora, você **vê a edição acontecer ao vivo na tela**, sem precisar de
+clique nenhum — mais confiável que tentar simular clique/digitação na
+tela (que já vimos que erra às vezes com modelos locais).
+
+### Como usar
+```
+"Hey JARVIS, lê o arquivo app.py do projeto X"
+"Hey JARVIS, muda a função Y pra fazer Z" (edita direto, sem perguntar)
+"Hey JARVIS, qual o status do git do meu projeto X?"
+"Hey JARVIS, cadastra meu projeto Gatolíngua na pasta C:\...\gatolingua"
+```
+
+### ⚠️ Decisão de segurança — leia antes de usar
+Por pedido explícito, o JARVIS pode ler/editar **qualquer pasta do PC**,
+sem restrição de projeto, e a edição é **direta, sem pedir confirmação**
+antes de gravar (pra você ver a mudança ao vivo, sem esperar um "posso
+confirmar?"). Isso é mais rápido, mas também significa: se você (ou o
+modelo local) errar um caminho de arquivo por engano, ou o Whisper
+entender errado o que você falou, a edição acontece mesmo assim.
+
+Duas redes de segurança ficam ativas de qualquer forma, sem afetar a
+velocidade:
+1. **Backup automático** — antes de qualquer sobrescrita, o conteúdo
+   anterior é salvo em `.jarvis_backups/arquivo.timestamp.bak`, na mesma
+   pasta do arquivo. Se algo der errado, é só copiar de volta.
+2. **Bloqueio de pastas do sistema operacional** — Windows, Program
+   Files, AppData nunca são liberados, mesmo sem restrição de projeto.
+   Isso não é sobre desconfiar de você, é sobre um comando mal entendido
+   não conseguir, na pior das hipóteses, estragar o próprio Windows.
+
+Pra subir mudanças pro GitHub, o JARVIS usa o `propose_command` que já
+existe (`git add`/`commit`/`push`) — esse sim **sempre pede sua
+aprovação** antes de rodar, porque afeta o repositório remoto de
+verdade, não só arquivos locais com backup.
+
+### Painel de Agentes — seus projetos aparecem lá também
+Cadastre um projeto (tela Configurar, ou "cadastra meu projeto X na
+pasta Y") e ele aparece na constelação, mostrando o estado real do git:
+verde = sincronizado, amarelo = tem mudança pendente ou está fora de
+sincronia com o GitHub (à frente ou atrás). Diferente dos outros
+agentes, esse não tem "cadência" — é uma checagem ao vivo do estado
+atual, não um job programado.
+
+### Testado de verdade
+- Leitura e escrita com um arquivo real, confirmando que o backup
+  preserva o conteúdo **anterior** de verdade (não só a mensagem dizendo
+  que preservou — abri o arquivo de backup e conferi o conteúdo)
+- **Bug real encontrado e corrigido**: minha primeira versão do bloqueio
+  de pastas do sistema não funcionava — dependia de como o Python
+  interpreta caminhos do Windows, que varia por sistema operacional onde
+  o código roda. Corrigi comparando a string do caminho diretamente
+  (funciona igual em qualquer SO), testei os 4 cenários de bloqueio
+  (Windows, Program Files, AppData, com barra normal e invertida) e
+  confirmei que pastas de projeto normais continuam liberadas
+- Status do git com um repositório real (init, commit, mudança
+  pendente) — os números batem exatamente com o que o `git status`
+  mostraria
+- Cadastro de projeto pela interface, confirmando que aparece no Painel
+  de Agentes com o estado correto
+
+## Radar de Notícias — 4 melhorias
+
+Além da busca por palavra-chave que já existia, 4 capacidades novas:
+
+### 1. Descoberta de fontes, com validação real
+`descobrir_fontes_noticia(nicho)` — pede ao modelo local candidatos de
+sites conhecidos do seu nicho, e **valida cada um de verdade** (checa se
+o RSS existe e tem conteúdo, não confia só no que o modelo "acha" que
+existe). Devolve uma lista clara: ✓ validado, ✗ não encontrado.
+```
+"Hey JARVIS, descobre fontes sobre fitness"
+"Hey JARVIS, cadastra a fonte X" (depois de validada)
+```
+
+### 2. Resumo profundo (manchete + 5 bullets + por que importa)
+`resumir_noticia(link)` — abre o artigo de verdade, extrai o texto, e
+pede ao modelo um resumo estruturado. Protegido contra conteúdo
+insuficiente (paywall, erro 404) — não inventa resumo de página vazia.
+```
+"Hey JARVIS, resume essa notícia sobre [assunto]"
+```
+
+### 3. Narração natural, a qualquer hora
+`narrar_noticias(assunto)` — compõe um texto falado natural (não é lista
+de títulos), usável a qualquer momento, não só no Morning Digest.
+```
+"Hey JARVIS, narra as notícias de hoje"
+```
+
+### 4. Horário fixo automático (opcional)
+Configura um horário do dia (Configurar → Assuntos de notícia → campo de
+hora) pra gerar a narração sozinha, uma vez por dia — aparece como agente
+novo no Painel de Agentes ("Narração de Notícias"), desligado até você
+configurar um horário.
+
+### Testado de verdade
+- Descoberta de fontes: 3 cenários (feed via tag HTML oficial, feed via
+  caminho comum tipo `/feed`, e o mais importante — site **sem** feed
+  nenhum, confirmando que não inventa sucesso falso)
+- Fluxo completo sugerir → validar em cadeia (o modelo sugeriu 2
+  candidatos, só 1 passou na validação real)
+- Resumo profundo com 5 bullets, e proteção contra conteúdo insuficiente
+- Narração com fallback (nunca fica muda, mesmo com o modelo offline)
+- Horário fixo: 5 cenários (sem configurar, hora errada, hora certa,
+  não roda 2x no mesmo dia, botão manual sempre força) — achei um
+  problema no meu próprio teste no meio do caminho (mock quebrando a
+  comparação de datas) e corrigi antes de confiar no resultado
+- Configuração pela interface, confirmando que o agente muda de
+  "desligado" pra "nunca rodou ainda" ao definir um horário
+
+### Mais 3 bugs reais, encontrados numa revisão posterior
+- **Fontes cadastradas nunca apareciam nas notícias de verdade** — a
+  busca combinada (`get_all_headlines`) só olhava os "assuntos", nunca
+  as "fontes" validadas por `descobrir_fontes_noticia`. Corrigido e
+  testado (confirmei as duas aparecendo juntas no mesmo resultado).
+- **Extração de artigo por regex deixava passar lixo** (sidebar de
+  anúncio, por exemplo) — troquei pela biblioteca `trafilatura`, testei
+  comparando as duas extrações lado a lado no mesmo HTML sintético.
+- **Botões de "ouvir" (notícias e Morning Digest) ficavam mudos
+  silenciosamente** se o toggle geral de resposta falada estivesse
+  desligado, mesmo em pedido explícito de "quero ouvir isso agora" —
+  separei as duas lógicas: pedido explícito sempre toca, resposta
+  automática respeita o toggle.
+
+## Dashboard de Tokens de IA
+
+Rastreia gasto de **API paga por uso** (OpenAI, Anthropic, Gemini, etc) e
+cota de **assinaturas** (Claude Pro/Max, ChatGPT Plus, Cursor) — nova aba
+"💰 Tokens de IA", com 3 sub-abas.
+
+### API (pago por uso)
+Registra tokens de entrada/saída por chamada, calcula o custo pela
+tabela de preços (editável, US$ por 1M tokens), mostra % do orçamento
+mensal e projeção de gasto até o fim do mês.
+```
+"Hey JARVIS, registrei 12000 tokens de entrada e 3400 de saída no Claude Sonnet pro projeto Jarvis"
+"Hey JARVIS, quanto eu gastei de IA esse mês?"
+```
+
+### Assinaturas (cota do plano)
+Cadastra planos com qualquer uma das 4 unidades (mensagens/requests/
+créditos/tokens) e 3 tipos de reset (rotativo em N horas, diário,
+mensal). Mostra cota usada, quanto resta, contagem regressiva até o
+reset, e alerta se a projeção indicar que vai estourar antes do reset —
+mesmo estando com % baixo ainda, se o ritmo de uso for alto.
+```
+"Hey JARVIS, gastei mais uma mensagem do Claude Max"
+"Hey JARVIS, como estão minhas assinaturas de IA?"
+```
+
+### Testado de verdade
+- **Custo de API contra conta feita à mão**: usei o exemplo exato do
+  documento de referência (12000 tokens de entrada + 3400 de saída no
+  Claude Sonnet) e confirmei que bate com o cálculo manual ($0.087)
+- Resumo mensal com breakdown por modelo/projeto, e projeção de gasto,
+  também conferidos contra conta manual
+- Cota de assinatura com o cenário exato do documento (320/900 mensagens
+  do Claude Max) — % de uso e contagem regressiva batem
+- **Reset automático nos 3 tipos** (rotativo, diário, mensal) — sozinho,
+  sem precisar apertar nenhum botão
+- Projeção de estouro de cota antes do reset, no ritmo de uso real
+- Custo total de IA = API + assinaturas, conferido contra conta manual
+- Interação real com os botões (+1, +10, resetar, remover), clicando de
+  propósito contra o servidor rodando, não só a chamada de API isolada
+
+### Bugs reais encontrados e corrigidos
+- **Reset automático só funcionava pro tipo "rotativo"** — assinaturas
+  do tipo diário/mensal nunca zeravam sozinhas, ficavam acumulando o uso
+  pra sempre. Corrigido e testado nos 3 tipos.
+- **Falso positivo de "vai estourar"** logo depois de cadastrar uma
+  assinatura nova — a taxa de uso é calculada desde a última reinicialização
+  do ciclo, e uma assinatura recém-criada tem "tempo decorrido" perto de
+  zero, inflando a taxa artificialmente. Corrigido exigindo pelo menos
+  15 minutos de dados antes de confiar na projeção.
 
 ## Fine-tuning — dando personalidade própria ao modelo
 

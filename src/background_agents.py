@@ -37,6 +37,14 @@ AGENTS_REGISTRY = {
         "run_path": "/agents/morning_digest/run",
         "arquivo": "last_digest.json",
     },
+    "news_narration": {
+        "nome": "Narração de Notícias",
+        "icon": "🔊",
+        "faz": "Narra as notícias automaticamente, uma vez por dia, no horário configurado.",
+        "every_min": 24 * 60,
+        "run_path": "/agents/news_narration/run",
+        "arquivo": "jarvis.db (tabela agent_state)",
+    },
     "hey_jarvis": {
         "nome": "Hey JARVIS (escuta)",
         "icon": "🎙️",
@@ -58,6 +66,9 @@ def _agent_is_configured(agent_id: str) -> bool:
             return bool(news_radar.load_topics())
         if agent_id == "morning_digest":
             return True
+        if agent_id == "news_narration":
+            import news_radar
+            return news_radar.get_narration_hour() is not None
         if agent_id == "hey_jarvis":
             return True
     except Exception:
@@ -121,6 +132,41 @@ def run_morning_digest_job(forcar: bool = False) -> None:
         db.record_agent_run("morning_digest", "error", str(e), "")
 
 
+def run_news_narration_job(forcar: bool = False) -> None:
+    """
+    Roda a narração automática das notícias só se: (1) um horário foi
+    configurado, (2) é a hora certa, e (3) ainda não rodou hoje — a menos
+    que `forcar=True` (botão manual).
+    """
+    import database as db
+    import news_radar
+
+    if not forcar:
+        hora_configurada = news_radar.get_narration_hour()
+        if hora_configurada is None:
+            return  # ninguém configurou um horário — não roda, fica "off"
+
+        agora = datetime.datetime.now()
+        if agora.hour != hora_configurada:
+            return
+
+        estado_anterior = db.get_agent_state("news_narration")
+        if estado_anterior and estado_anterior.get("last_run"):
+            try:
+                ultimo = datetime.datetime.fromisoformat(estado_anterior["last_run"])
+                if ultimo.date() == agora.date():
+                    return  # já rodou hoje, não roda de novo
+            except ValueError:
+                pass
+
+    try:
+        texto = news_radar.narrate_news()
+        resumo = texto[:150] + ("..." if len(texto) > 150 else "")
+        db.record_agent_run("news_narration", "ok", resumo, "")
+    except Exception as e:
+        db.record_agent_run("news_narration", "error", str(e), "")
+
+
 _scheduler: BackgroundScheduler | None = None
 
 
@@ -134,6 +180,7 @@ def start_scheduler() -> BackgroundScheduler:
     _scheduler.add_job(run_email_triage_job, "interval", minutes=15, id="email_triage", next_run_time=now)
     _scheduler.add_job(run_news_radar_job, "interval", minutes=30, id="news_radar", next_run_time=now)
     _scheduler.add_job(run_morning_digest_job, "interval", minutes=5, id="morning_digest_check", next_run_time=now)
+    _scheduler.add_job(run_news_narration_job, "interval", minutes=5, id="news_narration_check", next_run_time=now)
     _scheduler.start()
     return _scheduler
 

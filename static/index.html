@@ -291,6 +291,70 @@
   .hub-day-label:first-child { margin-top: 0; }
   .hub-error-card { border-color: var(--red); color: var(--red); font-size: 12.5px; }
 
+  .discover-card {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 12px; margin-bottom: 6px; font-size: 12.5px;
+  }
+  .discover-card.invalida { opacity: .6; border-color: var(--red); }
+  .discover-card-info { overflow: hidden; }
+  .discover-card-title { font-weight: 600; }
+  .discover-card-sub { color: var(--text-dim); font-size: 11px; }
+  .discover-card button {
+    background: var(--cyan-dim); color: var(--cyan); border: 1px solid var(--cyan);
+    border-radius: 6px; padding: 4px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer; flex-shrink: 0;
+  }
+
+  /* ── Dashboard de Tokens de IA ────────────────────────────────────── */
+  .ai-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 20px; }
+  .ai-kpi-card { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .ai-kpi-card .ai-kpi-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; }
+  .ai-kpi-card .ai-kpi-value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .ai-kpi-card .ai-kpi-sub { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .ai-kpi-card.warn .ai-kpi-value { color: var(--amber); }
+  .ai-kpi-card.danger .ai-kpi-value { color: var(--red); }
+  .ai-kpi-card.good .ai-kpi-value { color: var(--green); }
+
+  .ai-progress-bar { height: 10px; border-radius: 6px; background: var(--panel); overflow: hidden; margin: 6px 0; }
+  .ai-progress-fill { height: 100%; border-radius: 6px; transition: width .3s ease; }
+  .ai-progress-fill.ok { background: var(--green); }
+  .ai-progress-fill.warn { background: var(--amber); }
+  .ai-progress-fill.danger { background: var(--red); }
+
+  .ai-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 12.5px; }
+  .ai-bar-row .ai-bar-label { width: 130px; flex-shrink: 0; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ai-bar-row .ai-bar-track { flex: 1; height: 16px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+  .ai-bar-row .ai-bar-fill { height: 100%; background: var(--cyan); border-radius: 4px; }
+  .ai-bar-row .ai-bar-value { width: 70px; text-align: right; flex-shrink: 0; }
+
+  .ai-sub-card { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+  .ai-sub-card-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .ai-sub-card-name { font-weight: 700; font-size: 14px; }
+  .ai-sub-card-countdown { font-size: 11.5px; color: var(--text-dim); }
+  .ai-sub-card-actions { display: flex; gap: 6px; margin-top: 10px; }
+  .ai-sub-card-actions button {
+    background: var(--panel); border: 1px solid var(--line); color: var(--text);
+    border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; font-weight: 600;
+  }
+  .ai-sub-card-actions button:hover { border-color: var(--cyan); color: var(--cyan); }
+  .ai-sub-card.warn { border-left: 3px solid var(--amber); }
+  .ai-sub-card.critico { border-left: 3px solid var(--red); }
+
+  .ai-usage-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .ai-usage-table th { text-align: left; color: var(--text-dim); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 11px; text-transform: uppercase; }
+  .ai-usage-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .ai-usage-table button { background: none; border: none; color: var(--red); cursor: pointer; font-size: 13px; }
+
+  .ai-form-inline { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .ai-form-inline input, .ai-form-inline select {
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 6px; padding: 7px 10px; font-size: 12.5px;
+  }
+  .ai-form-inline button {
+    background: var(--cyan-dim); color: var(--cyan); border: 1px solid var(--cyan);
+    border-radius: 6px; padding: 7px 14px; font-size: 12.5px; font-weight: 700; cursor: pointer;
+  }
+
   /* ── Painel de Agentes — constelação animada ─────────────────────── */
   .agents-layout { display: flex; flex: 1; min-height: 0; overflow: hidden; }
   .agents-constellation-wrap { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; padding: 12px; }
@@ -744,6 +808,10 @@
     <div class="session-list" id="sessionList"></div>
 
     <div class="sidebar-footer">
+      <button class="sidebar-nav-item" id="aiTokensTabBtn">
+        <span>💰 Tokens de IA</span>
+        <span class="badge" id="aiTokensAlertBadge"></span>
+      </button>
       <button class="sidebar-nav-item" id="agentsTabBtn">
         <span>🌌 Agentes</span>
         <span class="badge" id="agentsAttentionBadge"></span>
@@ -867,6 +935,32 @@
           <button id="addTopicBtn" type="button">+ Adicionar</button>
         </div>
         <span id="topicFormResult" style="font-size:12px;color:var(--text-dim);"></span>
+
+        <label style="margin-top: 10px; display: block;">Narração automática das notícias (opcional)</label>
+        <div class="apps-form">
+          <input id="narrationHour" type="number" min="0" max="23" placeholder="Hora (0-23, ex: 8)" />
+          <button id="setNarrationHourBtn" type="button">Definir horário</button>
+        </div>
+        <span id="narrationHourResult" style="font-size:12px;color:var(--text-dim);"></span>
+
+        <label style="margin-top: 14px; display: block;">Fontes específicas (sites/blogs, além dos assuntos acima)</label>
+        <div id="newsSourcesList" class="apps-list"></div>
+        <div class="apps-form">
+          <input id="discoverNicho" type="text" placeholder="Nicho (ex: futebol brasileiro)" />
+          <button id="discoverSourcesBtn" type="button">🔍 Descobrir fontes</button>
+        </div>
+        <div id="discoverResults"></div>
+        <span id="sourceFormResult" style="font-size:12px;color:var(--text-dim);"></span>
+
+        <h2 style="margin-top: 20px;">💻 Projetos de código</h2>
+        <label>Aparecem no Painel de Agentes com o status do git</label>
+        <div id="codeProjectsList" class="apps-list"></div>
+        <div class="apps-form">
+          <input id="newCodeProjNome" type="text" placeholder="Nome (ex: Gatolíngua)" />
+          <input id="newCodeProjCaminho" type="text" placeholder="Caminho completo da pasta" />
+          <button id="addCodeProjBtn" type="button">+ Adicionar</button>
+        </div>
+        <span id="codeProjFormResult" style="font-size:12px;color:var(--text-dim);"></span>
       </div>
     </div>
 
@@ -924,9 +1018,27 @@
     <div class="panel" data-panel="news">
       <div class="hub-toolbar">
         <strong>📰 Notícias</strong>
-        <button id="newsReloadBtn" class="icon-btn" title="Recarregar">⟳</button>
+        <div style="display:flex; gap:8px;">
+          <button id="listenNewsBtn" class="icon-btn" title="Ouvir agora">🔊 Ouvir</button>
+          <button id="newsReloadBtn" class="icon-btn" title="Recarregar">⟳</button>
+        </div>
       </div>
       <div class="hub-inner" id="newsInner">
+        <div class="empty-state">Carregando...</div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="ai-tokens">
+      <div class="hub-toolbar">
+        <strong>💰 Dashboard de Tokens de IA</strong>
+        <button id="aiTokensReloadBtn" class="icon-btn" title="Recarregar">⟳</button>
+      </div>
+      <div class="hub-tabs">
+        <button class="hub-tab active" data-ai-tab="overview">Visão Geral</button>
+        <button class="hub-tab" data-ai-tab="api">API</button>
+        <button class="hub-tab" data-ai-tab="subs">Assinaturas</button>
+      </div>
+      <div class="hub-inner" id="aiTokensInner">
         <div class="empty-state">Carregando...</div>
       </div>
     </div>
@@ -991,7 +1103,8 @@
     if (name === "email") loadEmails();
     if (name === "news") loadNews();
     if (name === "agents") loadAgentsPanel();
-    if (name === "settings") { loadMicDevices(); loadApps(); loadCalendarsConfig(); loadEmailAccountsConfig(); loadNewsTopicsConfig(); }
+    if (name === "ai-tokens") loadAiTokensPanel();
+    if (name === "settings") { loadMicDevices(); loadApps(); loadCalendarsConfig(); loadEmailAccountsConfig(); loadNewsTopicsConfig(); loadCodeProjectsConfig(); loadNarrationHour(); loadNewsSourcesConfig(); }
     closeSidebarOnMobile();
   }
   $("settingsTabBtn").addEventListener("click", () => showPanel("settings"));
@@ -1516,8 +1629,11 @@
     preview.innerHTML = "";
   }
 
-  async function speakIfEnabled(text) {
-    if (!ttsEnabled || !text || !apiKey) return;
+  async function speakNow(text) {
+    // Sempre toca, ignorando o toggle de "resposta falada automática" —
+    // usado quando o usuário pede explicitamente pra ouvir algo (botão
+    // "Ouvir", digest, etc), que é diferente de "falar toda resposta sozinho".
+    if (!text || !apiKey) return;
     try {
       const res = await fetch(serverUrl + "/tts", {
         method: "POST",
@@ -1534,6 +1650,11 @@
       audio.play();
       audio.onended = () => URL.revokeObjectURL(url);
     } catch (e) { /* falha silenciosa */ }
+  }
+
+  async function speakIfEnabled(text) {
+    if (!ttsEnabled) return;
+    await speakNow(text);
   }
 
   $("micBtn").addEventListener("click", toggleRecording);
@@ -1878,6 +1999,23 @@
   }
   $("newsReloadBtn")?.addEventListener("click", loadNews);
 
+  $("listenNewsBtn")?.addEventListener("click", async () => {
+    if (!apiKey) return;
+    const btn = $("listenNewsBtn");
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Preparando...";
+    try {
+      const res = await fetch(serverUrl + "/news/narrate", { headers: { "X-API-Key": apiKey } });
+      const data = await res.json();
+      speakNow(data.texto);
+    } catch (err) {
+      alert("Falha ao narrar: " + err.message);
+    }
+    btn.disabled = false;
+    btn.textContent = originalText;
+  });
+
   // ── Morning Digest ───────────────────────────────────────────────────
   async function triggerDigest() {
     if (!apiKey) { showPanel("settings"); return; }
@@ -1887,7 +2025,7 @@
       const res = await fetch(serverUrl + "/digest", { headers: { "X-API-Key": apiKey } });
       const data = await res.json();
       thinkingDiv.querySelector(".msg-body").innerHTML = renderMarkdown(data.texto || "Não consegui gerar o digest agora.");
-      speakIfEnabled(data.texto);
+      speakNow(data.texto);
     } catch (err) {
       thinkingDiv.querySelector(".msg-body").innerHTML = renderMarkdown("Falha ao gerar o digest: " + err.message);
     }
@@ -2023,6 +2161,100 @@
       resultEl.textContent = `"${assunto}" adicionado!`;
       loadNewsTopicsConfig();
     } catch (err) { resultEl.textContent = "Falha: " + err.message; }
+  });
+
+  async function loadNarrationHour() {
+    if (!apiKey) return;
+    try {
+      const res = await fetch(serverUrl + "/news/narration-hour", { headers: { "X-API-Key": apiKey } });
+      const data = await res.json();
+      if (data.hora !== null && data.hora !== undefined) $("narrationHour").value = data.hora;
+    } catch (e) { /* silencioso */ }
+  }
+  $("setNarrationHourBtn")?.addEventListener("click", async () => {
+    const hora = parseInt($("narrationHour").value, 10);
+    const resultEl = $("narrationHourResult");
+    if (isNaN(hora) || hora < 0 || hora > 23) { resultEl.textContent = "Digite uma hora entre 0 e 23."; return; }
+    try {
+      const res = await fetch(serverUrl + "/news/narration-hour", {
+        method: "POST", headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ hora }),
+      });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); resultEl.textContent = "Erro: " + (err.detail || res.status); return; }
+      resultEl.textContent = `Narração automática definida pras ${hora}h.`;
+    } catch (err) { resultEl.textContent = "Falha: " + err.message; }
+  });
+
+  // ── Fontes de notícia (sites/blogs específicos, com descoberta) ─────
+  async function loadNewsSourcesConfig() {
+    const el = $("newsSourcesList");
+    if (!apiKey || !el) return;
+    try {
+      const res = await fetch(serverUrl + "/news/sources", { headers: { "X-API-Key": apiKey } });
+      const data = await res.json();
+      el.innerHTML = "";
+      (data.sources || []).forEach((fonte) => {
+        const item = document.createElement("div");
+        item.className = "apps-list-item";
+        item.innerHTML = `
+          <div class="app-info">
+            <div class="app-name">${escapeHtml(fonte.nome)}</div>
+            <div class="app-cmd">${escapeHtml(fonte.feed_url)}</div>
+          </div>
+          <button title="Remover">✕</button>`;
+        item.querySelector("button").addEventListener("click", async () => {
+          await fetch(`${serverUrl}/news/sources/${encodeURIComponent(fonte.nome)}`, { method: "DELETE", headers: { "X-API-Key": apiKey } });
+          loadNewsSourcesConfig();
+        });
+        el.appendChild(item);
+      });
+    } catch (e) { /* silencioso */ }
+  }
+
+  $("discoverSourcesBtn")?.addEventListener("click", async () => {
+    const nicho = $("discoverNicho").value.trim();
+    const resultsEl = $("discoverResults");
+    const btn = $("discoverSourcesBtn");
+    if (!nicho) { $("sourceFormResult").textContent = "Digite um nicho pra buscar."; return; }
+    btn.disabled = true;
+    btn.textContent = "Buscando e validando cada site...";
+    resultsEl.innerHTML = "";
+    try {
+      const res = await fetch(serverUrl + "/news/sources/discover", {
+        method: "POST", headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ nicho }),
+      });
+      const data = await res.json();
+      const resultados = data.resultados || [];
+      if (!resultados.length) {
+        resultsEl.innerHTML = '<div class="empty-state">Nenhum candidato sugerido pra esse nicho.</div>';
+      }
+      resultados.forEach((r) => {
+        const card = document.createElement("div");
+        card.className = "discover-card" + (r.valido ? "" : " invalida");
+        card.innerHTML = `
+          <div class="discover-card-info">
+            <div class="discover-card-title">${r.valido ? "✓" : "✗"} ${escapeHtml(r.site)}</div>
+            <div class="discover-card-sub">${r.valido ? escapeHtml(r.exemplo_titulo || "") : escapeHtml(r.motivo || "não validado")}</div>
+          </div>
+          ${r.valido ? '<button type="button">+ Adicionar</button>' : ""}`;
+        if (r.valido) {
+          card.querySelector("button").addEventListener("click", async () => {
+            await fetch(serverUrl + "/news/sources", {
+              method: "POST", headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
+              body: JSON.stringify({ nome: r.site, feed_url: r.feed_url }),
+            });
+            card.remove();
+            loadNewsSourcesConfig();
+          });
+        }
+        resultsEl.appendChild(card);
+      });
+    } catch (err) {
+      resultsEl.innerHTML = `<div class="empty-state">Falha: ${escapeHtml(err.message)}</div>`;
+    }
+    btn.disabled = false;
+    btn.textContent = "🔍 Descobrir fontes";
   });
 
   // ── Painel de Agentes — constelação animada ─────────────────────────
@@ -2371,6 +2603,347 @@
 
   $("agentsTabBtn").addEventListener("click", () => showPanel("agents"));
   $("agentsReloadBtn")?.addEventListener("click", fetchAgentsSnapshot);
+
+  // ── Configuração: Projetos de código ─────────────────────────────────
+  async function loadCodeProjectsConfig() {
+    const el = $("codeProjectsList");
+    if (!apiKey || !el) return;
+    try {
+      const res = await fetch(serverUrl + "/code-projects", { headers: { "X-API-Key": apiKey } });
+      const data = await res.json();
+      el.innerHTML = "";
+      (data.projects || []).forEach((proj) => {
+        const item = document.createElement("div");
+        item.className = "apps-list-item";
+        item.innerHTML = `
+          <div class="app-info">
+            <div class="app-name">${escapeHtml(proj.nome)}</div>
+            <div class="app-cmd">${escapeHtml(proj.caminho)}</div>
+          </div>
+          <button title="Remover">✕</button>`;
+        item.querySelector("button").addEventListener("click", async () => {
+          await fetch(`${serverUrl}/code-projects/${encodeURIComponent(proj.nome)}`, { method: "DELETE", headers: { "X-API-Key": apiKey } });
+          loadCodeProjectsConfig();
+        });
+        el.appendChild(item);
+      });
+    } catch (e) { /* silencioso */ }
+  }
+  $("addCodeProjBtn")?.addEventListener("click", async () => {
+    const nome = $("newCodeProjNome").value.trim();
+    const caminho = $("newCodeProjCaminho").value.trim();
+    const resultEl = $("codeProjFormResult");
+    if (!nome || !caminho) { resultEl.textContent = "Preencha nome e caminho."; return; }
+    try {
+      const res = await fetch(serverUrl + "/code-projects", {
+        method: "POST", headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ nome, caminho }),
+      });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); resultEl.textContent = "Erro: " + (err.detail || res.status); return; }
+      $("newCodeProjNome").value = ""; $("newCodeProjCaminho").value = "";
+      resultEl.textContent = `"${nome}" adicionado! Já aparece no Painel de Agentes.`;
+      loadCodeProjectsConfig();
+    } catch (err) { resultEl.textContent = "Falha: " + err.message; }
+  });
+
+  // ── Dashboard de Tokens de IA ─────────────────────────────────────────
+  let aiCurrentTab = "overview";
+
+  async function loadAiTokensPanel() {
+    renderAiTab();
+  }
+
+  document.querySelectorAll('[data-ai-tab]').forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll('[data-ai-tab]').forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+      aiCurrentTab = tab.dataset.aiTab;
+      renderAiTab();
+    });
+  });
+  $("aiTokensReloadBtn")?.addEventListener("click", renderAiTab);
+  $("aiTokensTabBtn")?.addEventListener("click", () => showPanel("ai-tokens"));
+
+  async function renderAiTab() {
+    if (aiCurrentTab === "overview") return renderAiOverview();
+    if (aiCurrentTab === "api") return renderAiApiTab();
+    if (aiCurrentTab === "subs") return renderAiSubsTab();
+  }
+
+  function aiFmtUsd(v) { return "$" + (v || 0).toFixed(2); }
+
+  async function renderAiOverview() {
+    const el = $("aiTokensInner");
+    if (!apiKey) { el.innerHTML = ""; return; }
+    el.innerHTML = '<div class="empty-state">Carregando...</div>';
+    try {
+      const [summaryRes, subsRes] = await Promise.all([
+        fetch(serverUrl + "/ai-tokens/summary", { headers: { "X-API-Key": apiKey } }),
+        fetch(serverUrl + "/ai-tokens/subscriptions", { headers: { "X-API-Key": apiKey } }),
+      ]);
+      const summaryData = await summaryRes.json();
+      const subsData = await subsRes.json();
+      const api = summaryData.api;
+      const total = summaryData.total;
+      const subs = subsData.subscriptions || [];
+      const planosVermelho = subs.filter((s) => s.status !== "ok").length;
+
+      const orcamentoClass = api.estourou ? "danger" : api.alerta ? "warn" : "good";
+      const badge = $("aiTokensAlertBadge");
+      if (badge) badge.textContent = (api.alerta || planosVermelho > 0) ? "!" : "";
+
+      el.innerHTML = `
+        <div class="ai-kpi-grid">
+          <div class="ai-kpi-card ${orcamentoClass}">
+            <div class="ai-kpi-label">Gasto de API (mês)</div>
+            <div class="ai-kpi-value">${aiFmtUsd(api.total_gasto)}</div>
+            <div class="ai-kpi-sub">de ${aiFmtUsd(api.orcamento)} (${api.pct_orcamento.toFixed(1)}%)</div>
+          </div>
+          <div class="ai-kpi-card">
+            <div class="ai-kpi-label">Projeção fim do mês</div>
+            <div class="ai-kpi-value">${aiFmtUsd(api.projecao_fim_mes)}</div>
+            <div class="ai-kpi-sub">no ritmo atual</div>
+          </div>
+          <div class="ai-kpi-card">
+            <div class="ai-kpi-label">Custo total de IA</div>
+            <div class="ai-kpi-value">${aiFmtUsd(total.total)}</div>
+            <div class="ai-kpi-sub">API + assinaturas</div>
+          </div>
+          <div class="ai-kpi-card ${planosVermelho > 0 ? "warn" : "good"}">
+            <div class="ai-kpi-label">Planos em atenção</div>
+            <div class="ai-kpi-value">${planosVermelho}</div>
+            <div class="ai-kpi-sub">de ${subs.length} assinatura(s)</div>
+          </div>
+        </div>
+        <h3 style="font-size:13px;color:var(--text-dim);margin-bottom:10px;">Gasto por modelo (este mês)</h3>
+        <div id="aiModelBreakdown"></div>
+      `;
+
+      const breakdownEl = $("aiModelBreakdown");
+      const modelos = Object.entries(api.por_modelo || {}).sort((a, b) => b[1] - a[1]);
+      if (!modelos.length) {
+        breakdownEl.innerHTML = '<div class="empty-state">Nenhum uso registrado este mês ainda.</div>';
+      } else {
+        const max = Math.max(...modelos.map((m) => m[1]));
+        breakdownEl.innerHTML = modelos.map(([modelo, custo]) => `
+          <div class="ai-bar-row">
+            <span class="ai-bar-label">${escapeHtml(modelo)}</span>
+            <span class="ai-bar-track"><span class="ai-bar-fill" style="width:${max > 0 ? (custo / max * 100) : 0}%"></span></span>
+            <span class="ai-bar-value">${aiFmtUsd(custo)}</span>
+          </div>`).join("");
+      }
+    } catch (err) {
+      el.innerHTML = `<div class="empty-state">Falha ao carregar: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  async function renderAiApiTab() {
+    const el = $("aiTokensInner");
+    if (!apiKey) { el.innerHTML = ""; return; }
+    el.innerHTML = '<div class="empty-state">Carregando...</div>';
+    try {
+      const [usageRes, pricesRes, configRes] = await Promise.all([
+        fetch(serverUrl + "/ai-tokens/usage", { headers: { "X-API-Key": apiKey } }),
+        fetch(serverUrl + "/ai-tokens/prices", { headers: { "X-API-Key": apiKey } }),
+        fetch(serverUrl + "/ai-tokens/config", { headers: { "X-API-Key": apiKey } }),
+      ]);
+      const usageData = await usageRes.json();
+      const pricesData = await pricesRes.json();
+      const config = await configRes.json();
+      const modelos = Object.keys(pricesData.prices || {});
+
+      el.innerHTML = `
+        <label>Orçamento mensal (US$)</label>
+        <div class="ai-form-inline">
+          <input id="aiBudgetInput" type="number" step="0.01" value="${config.budget_monthly_usd}" style="width:120px;" />
+          <button id="aiBudgetSaveBtn" type="button">Salvar orçamento</button>
+          <span id="aiBudgetResult" style="font-size:12px;color:var(--text-dim);align-self:center;"></span>
+        </div>
+
+        <label>Registrar uso de API</label>
+        <div class="ai-form-inline">
+          <input id="aiUsageData" type="date" value="${new Date().toISOString().slice(0, 10)}" />
+          <input id="aiUsageProjeto" type="text" placeholder="Projeto" style="width:110px;" />
+          <select id="aiUsageModelo" style="width:150px;">${modelos.map((m) => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("")}</select>
+          <input id="aiUsageInput" type="number" placeholder="Tokens entrada" style="width:110px;" />
+          <input id="aiUsageOutput" type="number" placeholder="Tokens saída" style="width:110px;" />
+          <button id="aiUsageAddBtn" type="button">+ Adicionar</button>
+        </div>
+        <span id="aiUsageFormResult" style="font-size:12px;color:var(--text-dim);"></span>
+
+        <table class="ai-usage-table" style="margin-top:14px;">
+          <thead><tr><th>Data</th><th>Projeto</th><th>Modelo</th><th>Entrada</th><th>Saída</th><th>Custo</th><th></th></tr></thead>
+          <tbody id="aiUsageTableBody"></tbody>
+        </table>
+
+        <label style="margin-top:18px;display:block;">Tabela de preços (US$ por 1M tokens)</label>
+        <div id="aiPriceList" class="apps-list"></div>
+        <div class="ai-form-inline">
+          <input id="aiPriceModelo" type="text" placeholder="Nome do modelo" style="width:150px;" />
+          <input id="aiPriceInput" type="number" step="0.01" placeholder="Preço entrada" style="width:110px;" />
+          <input id="aiPriceOutput" type="number" step="0.01" placeholder="Preço saída" style="width:110px;" />
+          <button id="aiPriceAddBtn" type="button">Salvar preço</button>
+        </div>
+        <span id="aiPriceFormResult" style="font-size:12px;color:var(--text-dim);"></span>
+      `;
+
+      const tbody = $("aiUsageTableBody");
+      const usos = usageData.usage || [];
+      if (!usos.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-dim);">Nenhum uso registrado ainda.</td></tr>';
+      } else {
+        tbody.innerHTML = usos.map((u) => `
+          <tr>
+            <td>${escapeHtml(u.data)}</td><td>${escapeHtml(u.projeto)}</td><td>${escapeHtml(u.modelo)}</td>
+            <td>${u.input_tokens.toLocaleString()}</td><td>${u.output_tokens.toLocaleString()}</td>
+            <td>${aiFmtUsd(u.custo)}</td>
+            <td><button data-id="${u.id}" title="Remover">✕</button></td>
+          </tr>`).join("");
+        tbody.querySelectorAll("button[data-id]").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            await fetch(`${serverUrl}/ai-tokens/usage/${btn.dataset.id}`, { method: "DELETE", headers: { "X-API-Key": apiKey } });
+            renderAiApiTab();
+          });
+        });
+      }
+
+      const priceListEl = $("aiPriceList");
+      priceListEl.innerHTML = Object.entries(pricesData.prices || {}).map(([modelo, p]) => `
+        <div class="apps-list-item">
+          <div class="app-info"><div class="app-name">${escapeHtml(modelo)}</div><div class="app-cmd">$${p.input}/1M in · $${p.output}/1M out</div></div>
+        </div>`).join("");
+
+      $("aiBudgetSaveBtn").addEventListener("click", async () => {
+        const valor = parseFloat($("aiBudgetInput").value);
+        if (isNaN(valor) || valor < 0) { $("aiBudgetResult").textContent = "Valor inválido."; return; }
+        await fetch(serverUrl + "/ai-tokens/config", {
+          method: "POST", headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ budget_monthly_usd: valor }),
+        });
+        $("aiBudgetResult").textContent = "Salvo!";
+      });
+
+      $("aiUsageAddBtn").addEventListener("click", async () => {
+        const data = $("aiUsageData").value;
+        const projeto = $("aiUsageProjeto").value.trim();
+        const modelo = $("aiUsageModelo").value;
+        const inputT = parseInt($("aiUsageInput").value, 10);
+        const outputT = parseInt($("aiUsageOutput").value, 10);
+        const resultEl = $("aiUsageFormResult");
+        if (!data || !projeto || !modelo || isNaN(inputT) || isNaN(outputT)) { resultEl.textContent = "Preencha todos os campos."; return; }
+        const res = await fetch(serverUrl + "/ai-tokens/usage", {
+          method: "POST", headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ data, projeto, modelo, input_tokens: inputT, output_tokens: outputT }),
+        });
+        const resData = await res.json();
+        resultEl.textContent = `Registrado! Custo: ${aiFmtUsd(resData.custo)}`;
+        renderAiApiTab();
+      });
+
+      $("aiPriceAddBtn").addEventListener("click", async () => {
+        const modelo = $("aiPriceModelo").value.trim();
+        const precoIn = parseFloat($("aiPriceInput").value);
+        const precoOut = parseFloat($("aiPriceOutput").value);
+        const resultEl = $("aiPriceFormResult");
+        if (!modelo || isNaN(precoIn) || isNaN(precoOut)) { resultEl.textContent = "Preencha todos os campos."; return; }
+        await fetch(serverUrl + "/ai-tokens/prices", {
+          method: "POST", headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ modelo, preco_input: precoIn, preco_output: precoOut }),
+        });
+        resultEl.textContent = `Preço de "${modelo}" salvo!`;
+        renderAiApiTab();
+      });
+    } catch (err) {
+      el.innerHTML = `<div class="empty-state">Falha ao carregar: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  async function renderAiSubsTab() {
+    const el = $("aiTokensInner");
+    if (!apiKey) { el.innerHTML = ""; return; }
+    el.innerHTML = '<div class="empty-state">Carregando...</div>';
+    try {
+      const res = await fetch(serverUrl + "/ai-tokens/subscriptions", { headers: { "X-API-Key": apiKey } });
+      const data = await res.json();
+      const subs = data.subscriptions || [];
+
+      let cardsHtml = subs.length
+        ? subs.map((s) => {
+            const pctClass = s.status === "critico" ? "danger" : s.status === "aviso" ? "warn" : "ok";
+            const horas = s.segundos_ate_reset ? Math.floor(s.segundos_ate_reset / 3600) : 0;
+            const min = s.segundos_ate_reset ? Math.floor((s.segundos_ate_reset % 3600) / 60) : 0;
+            return `
+              <div class="ai-sub-card ${s.status}">
+                <div class="ai-sub-card-top">
+                  <span class="ai-sub-card-name">${escapeHtml(s.nome)}</span>
+                  <span class="ai-sub-card-countdown">reseta em ${horas}h ${min}min</span>
+                </div>
+                <div class="ai-progress-bar"><div class="ai-progress-fill ${pctClass}" style="width:${Math.min(100, s.usado_pct)}%"></div></div>
+                <div style="font-size:12px;color:var(--text-dim);">${s.usado.toFixed(0)} / ${s.limite.toFixed(0)} ${escapeHtml(s.unidade_label)} (${s.usado_pct.toFixed(0)}%) — restam ${s.restante.toFixed(0)}</div>
+                ${s.projecao_estoura ? '<div style="font-size:11.5px;color:var(--red);margin-top:4px;">⚠ no ritmo atual, vai estourar antes do reset</div>' : ""}
+                <div class="ai-sub-card-actions">
+                  <button data-action="inc1" data-nome="${escapeHtml(s.nome)}">+1</button>
+                  <button data-action="inc10" data-nome="${escapeHtml(s.nome)}">+10</button>
+                  <button data-action="reset" data-nome="${escapeHtml(s.nome)}">Resetar ciclo</button>
+                  <button data-action="del" data-nome="${escapeHtml(s.nome)}" style="color:var(--red);border-color:var(--red);">Remover</button>
+                </div>
+              </div>`;
+          }).join("")
+        : '<div class="empty-state">Nenhuma assinatura cadastrada ainda.</div>';
+
+      el.innerHTML = cardsHtml + `
+        <label style="margin-top:16px;display:block;">Cadastrar assinatura</label>
+        <div class="ai-form-inline">
+          <input id="aiSubNome" type="text" placeholder="Nome (ex: Claude Max)" style="width:140px;" />
+          <select id="aiSubUnidade" style="width:110px;">
+            <option value="messages">mensagens</option><option value="requests">requests</option>
+            <option value="credits">créditos</option><option value="tokens">tokens</option>
+          </select>
+          <input id="aiSubLimite" type="number" placeholder="Limite" style="width:90px;" />
+          <select id="aiSubTipoReset" style="width:110px;">
+            <option value="rolling">rotativo (Nh)</option><option value="daily">diário</option><option value="monthly">mensal</option>
+          </select>
+          <input id="aiSubResetHoras" type="number" placeholder="A cada Nh" style="width:90px;" />
+          <input id="aiSubCusto" type="number" step="0.01" placeholder="Custo/mês US$" style="width:110px;" />
+          <button id="aiSubAddBtn" type="button">+ Cadastrar</button>
+        </div>
+        <span id="aiSubFormResult" style="font-size:12px;color:var(--text-dim);"></span>
+      `;
+
+      el.querySelectorAll("button[data-action]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const nome = btn.dataset.nome;
+          const action = btn.dataset.action;
+          if (action === "inc1") await fetch(`${serverUrl}/ai-tokens/subscriptions/${encodeURIComponent(nome)}/increment`, { method: "POST", headers: { "X-API-Key": apiKey, "Content-Type": "application/json" }, body: JSON.stringify({ quantidade: 1 }) });
+          if (action === "inc10") await fetch(`${serverUrl}/ai-tokens/subscriptions/${encodeURIComponent(nome)}/increment`, { method: "POST", headers: { "X-API-Key": apiKey, "Content-Type": "application/json" }, body: JSON.stringify({ quantidade: 10 }) });
+          if (action === "reset") await fetch(`${serverUrl}/ai-tokens/subscriptions/${encodeURIComponent(nome)}/reset`, { method: "POST", headers: { "X-API-Key": apiKey } });
+          if (action === "del") await fetch(`${serverUrl}/ai-tokens/subscriptions/${encodeURIComponent(nome)}`, { method: "DELETE", headers: { "X-API-Key": apiKey } });
+          renderAiSubsTab();
+        });
+      });
+
+      $("aiSubAddBtn").addEventListener("click", async () => {
+        const nome = $("aiSubNome").value.trim();
+        const unidade = $("aiSubUnidade").value;
+        const limite = parseFloat($("aiSubLimite").value);
+        const tipoReset = $("aiSubTipoReset").value;
+        const resetHoras = parseFloat($("aiSubResetHoras").value) || null;
+        const custo = parseFloat($("aiSubCusto").value) || 0;
+        const resultEl = $("aiSubFormResult");
+        if (!nome || isNaN(limite)) { resultEl.textContent = "Preencha nome e limite."; return; }
+        if (tipoReset === "rolling" && !resetHoras) { resultEl.textContent = "Reset rotativo precisa do campo 'A cada Nh'."; return; }
+        const res = await fetch(serverUrl + "/ai-tokens/subscriptions", {
+          method: "POST", headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ nome, unidade, limite, tipo_reset: tipoReset, reset_a_cada_horas: resetHoras, custo_mensal_usd: custo }),
+        });
+        if (!res.ok) { const err = await res.json().catch(() => ({})); resultEl.textContent = "Erro: " + (err.detail || res.status); return; }
+        resultEl.textContent = `"${nome}" cadastrada!`;
+        renderAiSubsTab();
+      });
+    } catch (err) {
+      el.innerHTML = `<div class="empty-state">Falha ao carregar: ${escapeHtml(err.message)}</div>`;
+    }
+  }
 
   async function loadCommands() {
     const el = $("commandsInner");

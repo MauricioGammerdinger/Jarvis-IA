@@ -93,6 +93,42 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS article_summary_cache (
+                link TEXT PRIMARY KEY,
+                summary_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                data TEXT NOT NULL,
+                projeto TEXT NOT NULL,
+                modelo TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_subscriptions (
+                nome TEXT PRIMARY KEY,
+                unidade TEXT NOT NULL,
+                limite REAL NOT NULL,
+                usado REAL NOT NULL DEFAULT 0,
+                tipo_reset TEXT NOT NULL,
+                reset_a_cada_horas REAL,
+                reset_ancora TEXT NOT NULL,
+                custo_mensal_usd REAL DEFAULT 0
+            )
+            """
+        )
         conn.commit()
 
 
@@ -159,6 +195,104 @@ def get_all_agent_states() -> dict[str, dict]:
     with _connect() as conn:
         rows = conn.execute("SELECT * FROM agent_state").fetchall()
         return {r["agent_id"]: dict(r) for r in rows}
+
+
+# ── Cache de resumo de artigos (por link, nunca resume duas vezes) ────────
+def get_article_summary(link: str) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT summary_json FROM article_summary_cache WHERE link = ?", (link,)).fetchone()
+        return json.loads(row["summary_json"]) if row else None
+
+
+def save_article_summary(link: str, summary: dict) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO article_summary_cache (link, summary_json, created_at) VALUES (?, ?, ?)",
+            (link, json.dumps(summary, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+
+
+# ── Uso de API de IA (custo pago por uso) ──────────────────────────────
+def add_ai_usage(data: str, projeto: str, modelo: str, input_tokens: int, output_tokens: int) -> int:
+    with _connect() as conn:
+        cursor = conn.execute(
+            "INSERT INTO ai_usage (data, projeto, modelo, input_tokens, output_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (data, projeto, modelo, input_tokens, output_tokens, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def list_ai_usage() -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM ai_usage ORDER BY data DESC, id DESC").fetchall()
+        return [dict(r) for r in rows]
+
+
+def delete_ai_usage(usage_id: int) -> bool:
+    with _connect() as conn:
+        cursor = conn.execute("DELETE FROM ai_usage WHERE id = ?", (usage_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def update_ai_usage(usage_id: int, data: str, projeto: str, modelo: str, input_tokens: int, output_tokens: int) -> bool:
+    with _connect() as conn:
+        cursor = conn.execute(
+            "UPDATE ai_usage SET data = ?, projeto = ?, modelo = ?, input_tokens = ?, output_tokens = ? WHERE id = ?",
+            (data, projeto, modelo, input_tokens, output_tokens, usage_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+# ── Assinaturas de IA (cota do plano) ──────────────────────────────────
+def upsert_subscription(nome: str, unidade: str, limite: float, tipo_reset: str, reset_a_cada_horas: float | None, reset_ancora: str, custo_mensal_usd: float = 0) -> None:
+    with _connect() as conn:
+        existente = conn.execute("SELECT usado FROM ai_subscriptions WHERE nome = ?", (nome,)).fetchone()
+        usado = existente["usado"] if existente else 0
+        conn.execute(
+            """INSERT OR REPLACE INTO ai_subscriptions
+               (nome, unidade, limite, usado, tipo_reset, reset_a_cada_horas, reset_ancora, custo_mensal_usd)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (nome, unidade, limite, usado, tipo_reset, reset_a_cada_horas, reset_ancora, custo_mensal_usd),
+        )
+        conn.commit()
+
+
+def list_subscriptions() -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM ai_subscriptions ORDER BY nome").fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_subscription(nome: str) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM ai_subscriptions WHERE nome = ?", (nome,)).fetchone()
+        return dict(row) if row else None
+
+
+def delete_subscription(nome: str) -> bool:
+    with _connect() as conn:
+        cursor = conn.execute("DELETE FROM ai_subscriptions WHERE nome = ?", (nome,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def increment_subscription_usage(nome: str, quantidade: float) -> bool:
+    with _connect() as conn:
+        cursor = conn.execute("UPDATE ai_subscriptions SET usado = usado + ? WHERE nome = ?", (quantidade, nome))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def set_subscription_usage(nome: str, novo_ancora: str) -> bool:
+    """Zera o uso e avança a âncora do ciclo (usado no reset, manual ou automático)."""
+    with _connect() as conn:
+        cursor = conn.execute("UPDATE ai_subscriptions SET usado = 0, reset_ancora = ? WHERE nome = ?", (novo_ancora, nome))
+        conn.commit()
+        return cursor.rowcount > 0
 
 
 # ── Memórias ─────────────────────────────────────────────────────────────

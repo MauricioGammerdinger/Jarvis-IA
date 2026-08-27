@@ -22,7 +22,10 @@ from pathlib import Path
 import httpx
 from PIL import Image, ImageGrab
 
+import ai_tokens
 import calendar_hub
+import code_editor
+import git_projects
 import database as db
 import email_hub
 import embeddings
@@ -527,6 +530,66 @@ TOOLS = [
         },
     },
     {
+        "name": "descobrir_fontes_noticia",
+        "description": (
+            "Sugere sites/blogs conhecidos de um nicho E valida CADA UM de verdade (checa se "
+            "o RSS existe e funciona, não confia só na sugestão do modelo). Use quando o "
+            "usuário pedir pra encontrar fontes/sites de um assunto específico, não só buscar "
+            "por palavra-chave."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"nicho": {"type": "string", "description": "O nicho/assunto (ex: 'inteligência artificial', 'fitness')."}},
+            "required": ["nicho"],
+        },
+    },
+    {
+        "name": "cadastrar_fonte_noticia",
+        "description": "Cadastra uma fonte RSS específica já validada (use depois de `descobrir_fontes_noticia` confirmar que funciona).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nome": {"type": "string", "description": "Nome curto da fonte."},
+                "feed_url": {"type": "string", "description": "URL do feed RSS, já validada."},
+            },
+            "required": ["nome", "feed_url"],
+        },
+    },
+    {
+        "name": "resumir_noticia",
+        "description": (
+            "Abre um link de notícia de verdade e faz um resumo aprofundado: manchete + 5 "
+            "bullets + por que isso importa. USE quando o usuário pedir pra entender melhor "
+            "uma manchete específica, não só ver o título."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"link": {"type": "string", "description": "O link do artigo (geralmente vem de `ver_noticias`)."}},
+            "required": ["link"],
+        },
+    },
+    {
+        "name": "narrar_noticias",
+        "description": (
+            "Compõe uma narração falada natural das manchetes atuais (não é só ler uma lista "
+            "de títulos, é um texto corrido). USE quando o usuário pedir pra 'ouvir' ou 'narrar' "
+            "as notícias, a qualquer hora do dia (diferente do Morning Digest, que só roda de manhã)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"assunto": {"type": "string", "description": "Assunto específico. Se omitido, narra de todos os assuntos configurados."}},
+        },
+    },
+    {
+        "name": "configurar_horario_noticias",
+        "description": "Define um horário fixo do dia pra gerar a narração das notícias automaticamente (além da atualização a cada 30min).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"hora": {"type": "integer", "description": "Hora do dia, 0-23 (ex: 8 pras 8h da manhã)."}},
+            "required": ["hora"],
+        },
+    },
+    {
         "name": "gerar_morning_digest",
         "description": (
             "Gera o briefing matinal (Morning Digest) — junta agenda de hoje, e-mails que "
@@ -538,6 +601,144 @@ TOOLS = [
             "type": "object",
             "properties": {"cidade_clima": {"type": "string", "description": "Cidade pra buscar o clima (opcional)."}},
         },
+    },
+    {
+        "name": "ler_arquivo_codigo",
+        "description": (
+            "Lê o conteúdo de um arquivo de código, de qualquer pasta do PC. USE quando o "
+            "usuário pedir pra ver/analisar um arquivo, ou antes de editar (pra saber o que "
+            "já existe lá)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"caminho": {"type": "string", "description": "Caminho completo do arquivo."}},
+            "required": ["caminho"],
+        },
+    },
+    {
+        "name": "editar_arquivo_codigo",
+        "description": (
+            "Sobrescreve um arquivo de código com um conteúdo novo — AÇÃO REAL E IMEDIATA, "
+            "sem pedir confirmação (o usuário decidiu assim, pra ver a mudança acontecer ao "
+            "vivo no VS Code). Um backup automático do conteúdo anterior é sempre feito antes. "
+            "Pastas do sistema operacional (Windows, Program Files, AppData) são sempre "
+            "bloqueadas. IMPORTANTE: sempre releia o arquivo com `ler_arquivo_codigo` antes de "
+            "editar, pra saber o conteúdo completo atual — nunca sobrescreva baseado em "
+            "suposição do que está lá."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "caminho": {"type": "string", "description": "Caminho completo do arquivo."},
+                "novo_conteudo": {"type": "string", "description": "O conteúdo COMPLETO novo do arquivo (substitui tudo)."},
+            },
+            "required": ["caminho", "novo_conteudo"],
+        },
+    },
+    {
+        "name": "listar_pasta_codigo",
+        "description": "Lista os arquivos e subpastas de uma pasta, pra explorar a estrutura de um projeto.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"caminho": {"type": "string", "description": "Caminho completo da pasta."}},
+            "required": ["caminho"],
+        },
+    },
+    {
+        "name": "cadastrar_projeto_codigo",
+        "description": "Cadastra um projeto de código (pasta com repositório git) pra aparecer no Painel de Agentes.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nome": {"type": "string", "description": "Nome curto do projeto (ex: 'Gatolíngua')."},
+                "caminho": {"type": "string", "description": "Caminho completo da pasta do projeto."},
+            },
+            "required": ["nome", "caminho"],
+        },
+    },
+    {
+        "name": "status_git_projeto",
+        "description": "Mostra o status git de um projeto: mudanças pendentes, último commit, se está sincronizado com o GitHub.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"nome_ou_caminho": {"type": "string", "description": "Nome de um projeto já cadastrado, ou o caminho completo direto."}},
+            "required": ["nome_ou_caminho"],
+        },
+    },
+    {
+        "name": "registrar_uso_ia",
+        "description": "Registra uma chamada de API de IA (custo pago por uso) — data, projeto, modelo, tokens de entrada e saída. Calcula o custo automaticamente pela tabela de preços.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "data": {"type": "string", "description": "Data no formato YYYY-MM-DD. Se omitido, usa hoje."},
+                "projeto": {"type": "string", "description": "Nome do projeto/app que fez a chamada."},
+                "modelo": {"type": "string", "description": "Nome do modelo (ex: 'claude-sonnet-4', 'gpt-4o')."},
+                "input_tokens": {"type": "integer"},
+                "output_tokens": {"type": "integer"},
+            },
+            "required": ["projeto", "modelo", "input_tokens", "output_tokens"],
+        },
+    },
+    {
+        "name": "ver_custo_ia",
+        "description": "Mostra o gasto de API de IA no mês, % do orçamento usado, projeção até o fim do mês, e o custo total (API + assinaturas).",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "definir_orcamento_ia",
+        "description": "Define o orçamento mensal em dólares pra gasto de API de IA.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"valor_usd": {"type": "number"}},
+            "required": ["valor_usd"],
+        },
+    },
+    {
+        "name": "definir_preco_modelo_ia",
+        "description": "Adiciona ou atualiza o preço de um modelo na tabela (US$ por 1 milhão de tokens).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "modelo": {"type": "string"},
+                "preco_input": {"type": "number", "description": "US$ por 1M tokens de entrada."},
+                "preco_output": {"type": "number", "description": "US$ por 1M tokens de saída."},
+            },
+            "required": ["modelo", "preco_input", "preco_output"],
+        },
+    },
+    {
+        "name": "cadastrar_assinatura_ia",
+        "description": "Cadastra uma assinatura de IA (Claude Pro/Max, ChatGPT Plus, Cursor, etc) pra acompanhar a cota.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nome": {"type": "string"},
+                "unidade": {"type": "string", "enum": ["messages", "requests", "credits", "tokens"]},
+                "limite": {"type": "number", "description": "Limite por ciclo, na unidade escolhida."},
+                "tipo_reset": {"type": "string", "enum": ["rolling", "daily", "monthly"]},
+                "reset_a_cada_horas": {"type": "number", "description": "Obrigatório se tipo_reset='rolling' (ex: 5 pras janelas do Claude)."},
+                "custo_mensal_usd": {"type": "number", "description": "Custo fixo mensal do plano (opcional, soma no custo total)."},
+            },
+            "required": ["nome", "unidade", "limite", "tipo_reset"],
+        },
+    },
+    {
+        "name": "registrar_uso_assinatura",
+        "description": "Soma uso numa assinatura já cadastrada (ex: '+1 mensagem'). USE quando o usuário disser algo como 'gastei mais uma mensagem do Claude'.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nome": {"type": "string"},
+                "quantidade": {"type": "number", "description": "Quanto somar (padrão 1)."},
+            },
+            "required": ["nome"],
+        },
+    },
+    {
+        "name": "ver_assinaturas_ia",
+        "description": "Mostra o estado de todas as assinaturas: cota usada, restante, contagem regressiva até o reset, e se a projeção indica que vai estourar antes do reset.",
+        "input_schema": {"type": "object", "properties": {}},
     },
 ]
 
@@ -754,9 +955,117 @@ def execute_tool(name: str, tool_input: dict) -> str:
             return f"Assunto '{tool_input['assunto']}' removido." if removido else f"Assunto '{tool_input['assunto']}' não estava configurado."
         return f"Ação desconhecida: {acao}"
 
+    if name == "descobrir_fontes_noticia":
+        resultados = news_radar.discover_and_validate_sources(tool_input["nicho"])
+        if not resultados:
+            return "Não consegui sugerir nenhuma fonte pra esse nicho."
+        validas = [r for r in resultados if r["valido"]]
+        invalidas = [r for r in resultados if not r["valido"]]
+        partes = [f"✓ {r['site']} (feed: {r['feed_url']}, exemplo: \"{r.get('exemplo_titulo', '')}\")" for r in validas]
+        partes += [f"✗ {r['site']} — {r.get('motivo', 'não validado')}" for r in invalidas]
+        return "\n".join(partes)
+
+    if name == "cadastrar_fonte_noticia":
+        news_radar.add_source(tool_input["nome"], tool_input["feed_url"])
+        return f"Fonte '{tool_input['nome']}' cadastrada."
+
+    if name == "resumir_noticia":
+        resumo = news_radar.summarize_article(tool_input["link"])
+        if "erro" in resumo:
+            return resumo["erro"]
+        bullets = "\n".join(f"- {b}" for b in resumo.get("bullets", []))
+        return f"{resumo.get('manchete', '')}\n\n{bullets}\n\nPor que importa: {resumo.get('por_que_importa', '')}"
+
+    if name == "narrar_noticias":
+        return news_radar.narrate_news(assunto=tool_input.get("assunto"))
+
+    if name == "configurar_horario_noticias":
+        news_radar.set_narration_hour(tool_input["hora"])
+        return f"Narração automática das notícias configurada pras {tool_input['hora']}h."
+
     if name == "gerar_morning_digest":
         resultado = morning_digest.generate_digest(cidade_clima=tool_input.get("cidade_clima"))
         return resultado["texto"]
+
+    if name == "ler_arquivo_codigo":
+        return code_editor.read_file(tool_input["caminho"])
+
+    if name == "editar_arquivo_codigo":
+        return code_editor.write_file(tool_input["caminho"], tool_input["novo_conteudo"])
+
+    if name == "listar_pasta_codigo":
+        return code_editor.list_directory(tool_input["caminho"])
+
+    if name == "cadastrar_projeto_codigo":
+        git_projects.add_code_project(tool_input["nome"], tool_input["caminho"])
+        return f"Projeto '{tool_input['nome']}' cadastrado. Já aparece no Painel de Agentes."
+
+    if name == "status_git_projeto":
+        alvo = tool_input["nome_ou_caminho"]
+        projetos = git_projects.load_code_projects()
+        caminho = next((p["caminho"] for p in projetos if p["nome"].lower() == alvo.lower()), alvo)
+        status = git_projects.get_git_status(caminho)
+        if "erro" in status:
+            return status["erro"]
+        return (
+            f"Branch '{status['branch']}', {status['mudancas_pendentes']} mudança(s) pendente(s). "
+            f"Último commit: {status['commit_msg']} ({status['commit_relative']}). "
+            f"{status['ahead']} commit(s) à frente, {status['behind']} atrás do remoto."
+        )
+
+    if name == "registrar_uso_ia":
+        import datetime as dt_module
+        data = tool_input.get("data") or dt_module.date.today().isoformat()
+        resultado = ai_tokens.register_usage(data, tool_input["projeto"], tool_input["modelo"], tool_input["input_tokens"], tool_input["output_tokens"])
+        return f"Uso registrado: {tool_input['input_tokens']} tokens de entrada + {tool_input['output_tokens']} de saída, custo de ${resultado['custo']:.4f}."
+
+    if name == "ver_custo_ia":
+        resumo = ai_tokens.get_api_summary()
+        total = ai_tokens.get_total_ai_cost_this_month()
+        return (
+            f"Gasto de API este mês: ${resumo['total_gasto']:.2f} de ${resumo['orcamento']:.2f} "
+            f"({resumo['pct_orcamento']:.1f}% do orçamento). Projeção até o fim do mês: ${resumo['projecao_fim_mes']:.2f}. "
+            f"{'⚠ Já estourou o orçamento!' if resumo['estourou'] else ''} "
+            f"Custo total de IA (API + assinaturas): ${total['total']:.2f}."
+        )
+
+    if name == "definir_orcamento_ia":
+        ai_tokens.update_config(budget_monthly_usd=tool_input["valor_usd"])
+        return f"Orçamento mensal de IA definido em ${tool_input['valor_usd']:.2f}."
+
+    if name == "definir_preco_modelo_ia":
+        ai_tokens.set_model_price(tool_input["modelo"], tool_input["preco_input"], tool_input["preco_output"])
+        return f"Preço de '{tool_input['modelo']}' definido: ${tool_input['preco_input']}/1M entrada, ${tool_input['preco_output']}/1M saída."
+
+    if name == "cadastrar_assinatura_ia":
+        try:
+            ai_tokens.add_subscription(
+                tool_input["nome"], tool_input["unidade"], tool_input["limite"], tool_input["tipo_reset"],
+                reset_a_cada_horas=tool_input.get("reset_a_cada_horas"), custo_mensal_usd=tool_input.get("custo_mensal_usd", 0),
+            )
+            return f"Assinatura '{tool_input['nome']}' cadastrada."
+        except ValueError as e:
+            return str(e)
+
+    if name == "registrar_uso_assinatura":
+        try:
+            sub = ai_tokens.increment_subscription(tool_input["nome"], tool_input.get("quantidade", 1))
+            return f"'{tool_input['nome']}' agora em {sub['usado']:.0f}/{sub['limite']:.0f} {sub['unidade']}."
+        except ValueError as e:
+            return str(e)
+
+    if name == "ver_assinaturas_ia":
+        snapshot = ai_tokens.get_subscriptions_snapshot()
+        if not snapshot:
+            return "Nenhuma assinatura cadastrada ainda."
+        partes = []
+        for s in snapshot:
+            aviso = " ⚠ vai estourar antes do reset!" if s["projecao_estoura"] else ""
+            partes.append(
+                f"{s['nome']}: {s['usado']:.0f}/{s['limite']:.0f} {s['unidade_label']} "
+                f"({s['usado_pct']:.0f}%), reseta em {ai_tokens.format_countdown(s['segundos_ate_reset'])}.{aviso}"
+            )
+        return "\n".join(partes)
 
     return f"Ferramenta desconhecida: {name}"
 

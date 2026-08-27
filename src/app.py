@@ -42,6 +42,9 @@ import media
 import tts
 import calendar_hub
 import background_agents
+import code_editor
+import ai_tokens
+import git_projects
 import email_hub
 import morning_digest
 import news_radar
@@ -142,6 +145,20 @@ NOTÍCIAS: `ver_noticias` (com ou sem assunto) e `gerenciar_assuntos_noticia` (a
 
 MORNING DIGEST: `gerar_morning_digest` — use quando o usuário disser "bom dia" ou pedir um \
 resumo do dia. Junta agenda + e-mails de ação + notícias + clima + uma meta.
+
+CÓDIGO: `ler_arquivo_codigo`/`editar_arquivo_codigo`/`listar_pasta_codigo` dão acesso direto a \
+arquivos de qualquer pasta (sem restrição, por decisão do usuário) — `editar_arquivo_codigo` \
+EXECUTA NA HORA, sem pedir confirmação (o usuário quer ver a mudança ao vivo no editor), mas \
+sempre relia o arquivo com `ler_arquivo_codigo` antes de editar, pra saber o conteúdo real \
+atual, nunca suponha. `cadastrar_projeto_codigo` e `status_git_projeto` mostram o estado do \
+git de um projeto (mudanças pendentes, sincronia com o GitHub). Pra abrir um projeto \
+visualmente (VS Code) antes de mexer nele, use `abrir_projeto` (se configurado) — assim o \
+usuário vê a tela enquanto você edita os arquivos por trás.
+
+TOKENS DE IA: `registrar_uso_ia` grava uma chamada de API com custo calculado automático. \
+`ver_custo_ia` mostra gasto do mês/orçamento/projeção. `cadastrar_assinatura_ia` cadastra um \
+plano (Claude Pro/Max, ChatGPT, Cursor); `registrar_uso_assinatura` soma uso (ex: "gastei mais \
+uma mensagem do Claude" → +1); `ver_assinaturas_ia` mostra cota usada/restante/tempo até reset.
 
 REGRA OBRIGATÓRIA SOBRE RESULTADOS DE FERRAMENTAS: depois de qualquer chamada de ferramenta, \
 sua resposta final DEVE refletir o que realmente aconteceu — nunca dê uma resposta genérica \
@@ -355,6 +372,222 @@ def remove_news_topic(assunto: str):
     return {"ok": True}
 
 
+class NarrationHourRequest(BaseModel):
+    hora: int
+
+
+@app.get("/news/narration-hour", dependencies=[Depends(require_api_key)])
+def get_narration_hour_endpoint():
+    return {"hora": news_radar.get_narration_hour()}
+
+
+@app.post("/news/narration-hour", dependencies=[Depends(require_api_key)])
+def set_narration_hour_endpoint(req: NarrationHourRequest):
+    if not (0 <= req.hora <= 23):
+        raise HTTPException(status_code=400, detail="Hora precisa estar entre 0 e 23.")
+    news_radar.set_narration_hour(req.hora)
+    return {"ok": True}
+
+
+class DiscoverSourcesRequest(BaseModel):
+    nicho: str
+
+
+class AddSourceRequest(BaseModel):
+    nome: str
+    feed_url: str
+
+
+@app.get("/news/sources", dependencies=[Depends(require_api_key)])
+def list_news_sources():
+    return {"sources": news_radar.load_sources()}
+
+
+@app.post("/news/sources/discover", dependencies=[Depends(require_api_key)])
+def discover_news_sources(req: DiscoverSourcesRequest):
+    if not req.nicho.strip():
+        raise HTTPException(status_code=400, detail="Nicho é obrigatório.")
+    return {"resultados": news_radar.discover_and_validate_sources(req.nicho)}
+
+
+@app.post("/news/sources", dependencies=[Depends(require_api_key)])
+def add_news_source(req: AddSourceRequest):
+    if not req.nome.strip() or not req.feed_url.strip():
+        raise HTTPException(status_code=400, detail="Nome e link do feed são obrigatórios.")
+    news_radar.add_source(req.nome, req.feed_url)
+    return {"ok": True}
+
+
+@app.delete("/news/sources/{nome}", dependencies=[Depends(require_api_key)])
+def remove_news_source(nome: str):
+    removed = news_radar.remove_source(nome)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Fonte '{nome}' não encontrada.")
+    return {"ok": True}
+
+
+@app.get("/news/narrate", dependencies=[Depends(require_api_key)])
+def narrate_news_now(assunto: str | None = None):
+    return {"texto": news_radar.narrate_news(assunto=assunto)}
+
+
+# ── Projetos de código (aparecem no Painel de Agentes) ──────────────────
+class CodeProjectRequest(BaseModel):
+    nome: str
+    caminho: str
+
+
+@app.get("/code-projects", dependencies=[Depends(require_api_key)])
+def list_code_projects():
+    return {"projects": git_projects.load_code_projects()}
+
+
+@app.post("/code-projects", dependencies=[Depends(require_api_key)])
+def add_code_project_endpoint(req: CodeProjectRequest):
+    if not req.nome.strip() or not req.caminho.strip():
+        raise HTTPException(status_code=400, detail="Nome e caminho são obrigatórios.")
+    git_projects.add_code_project(req.nome, req.caminho)
+    return {"ok": True}
+
+
+@app.delete("/code-projects/{nome}", dependencies=[Depends(require_api_key)])
+def remove_code_project_endpoint(nome: str):
+    removed = git_projects.remove_code_project(nome)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Projeto '{nome}' não encontrado.")
+    return {"ok": True}
+
+
+# ── Dashboard de Tokens de IA ─────────────────────────────────────────────
+class AiUsageRequest(BaseModel):
+    data: str
+    projeto: str
+    modelo: str
+    input_tokens: int
+    output_tokens: int
+
+
+class AiConfigRequest(BaseModel):
+    budget_monthly_usd: float | None = None
+    alert_pct: float | None = None
+    currency: str | None = None
+    usd_to_brl: float | None = None
+
+
+class AiPriceRequest(BaseModel):
+    modelo: str
+    preco_input: float
+    preco_output: float
+
+
+class AiSubscriptionRequest(BaseModel):
+    nome: str
+    unidade: str
+    limite: float
+    tipo_reset: str
+    reset_a_cada_horas: float | None = None
+    custo_mensal_usd: float = 0
+
+
+class AiSubscriptionIncrementRequest(BaseModel):
+    quantidade: float = 1
+
+
+@app.get("/ai-tokens/summary", dependencies=[Depends(require_api_key)])
+def get_ai_summary_endpoint(mes: str | None = None):
+    api = ai_tokens.get_api_summary(mes=mes)
+    total = ai_tokens.get_total_ai_cost_this_month()
+    return {"api": api, "total": total}
+
+
+@app.get("/ai-tokens/usage", dependencies=[Depends(require_api_key)])
+def list_ai_usage_endpoint(dias: int | None = None):
+    return {"usage": ai_tokens.get_usage_with_cost(periodo_dias=dias)}
+
+
+@app.post("/ai-tokens/usage", dependencies=[Depends(require_api_key)])
+def add_ai_usage_endpoint(req: AiUsageRequest):
+    resultado = ai_tokens.register_usage(req.data, req.projeto, req.modelo, req.input_tokens, req.output_tokens)
+    return {"ok": True, **resultado}
+
+
+@app.put("/ai-tokens/usage/{usage_id}", dependencies=[Depends(require_api_key)])
+def update_ai_usage_endpoint(usage_id: int, req: AiUsageRequest):
+    updated = db.update_ai_usage(usage_id, req.data, req.projeto, req.modelo, req.input_tokens, req.output_tokens)
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"Uso #{usage_id} não encontrado.")
+    return {"ok": True}
+
+
+@app.delete("/ai-tokens/usage/{usage_id}", dependencies=[Depends(require_api_key)])
+def delete_ai_usage_endpoint(usage_id: int):
+    removed = db.delete_ai_usage(usage_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Uso #{usage_id} não encontrado.")
+    return {"ok": True}
+
+
+@app.get("/ai-tokens/prices", dependencies=[Depends(require_api_key)])
+def get_ai_prices_endpoint():
+    return {"prices": ai_tokens.load_price_table()}
+
+
+@app.post("/ai-tokens/prices", dependencies=[Depends(require_api_key)])
+def set_ai_price_endpoint(req: AiPriceRequest):
+    ai_tokens.set_model_price(req.modelo, req.preco_input, req.preco_output)
+    return {"ok": True}
+
+
+@app.get("/ai-tokens/config", dependencies=[Depends(require_api_key)])
+def get_ai_config_endpoint():
+    return ai_tokens.load_config()
+
+
+@app.post("/ai-tokens/config", dependencies=[Depends(require_api_key)])
+def update_ai_config_endpoint(req: AiConfigRequest):
+    return ai_tokens.update_config(**req.model_dump())
+
+
+@app.get("/ai-tokens/subscriptions", dependencies=[Depends(require_api_key)])
+def list_ai_subscriptions_endpoint():
+    return {"subscriptions": ai_tokens.get_subscriptions_snapshot()}
+
+
+@app.post("/ai-tokens/subscriptions", dependencies=[Depends(require_api_key)])
+def add_ai_subscription_endpoint(req: AiSubscriptionRequest):
+    try:
+        ai_tokens.add_subscription(req.nome, req.unidade, req.limite, req.tipo_reset, req.reset_a_cada_horas, custo_mensal_usd=req.custo_mensal_usd)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+@app.delete("/ai-tokens/subscriptions/{nome}", dependencies=[Depends(require_api_key)])
+def delete_ai_subscription_endpoint(nome: str):
+    removed = db.delete_subscription(nome)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Assinatura '{nome}' não encontrada.")
+    return {"ok": True}
+
+
+@app.post("/ai-tokens/subscriptions/{nome}/increment", dependencies=[Depends(require_api_key)])
+def increment_ai_subscription_endpoint(nome: str, req: AiSubscriptionIncrementRequest):
+    try:
+        sub = ai_tokens.increment_subscription(nome, req.quantidade)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"ok": True, "subscription": sub}
+
+
+@app.post("/ai-tokens/subscriptions/{nome}/reset", dependencies=[Depends(require_api_key)])
+def reset_ai_subscription_endpoint(nome: str):
+    try:
+        sub = ai_tokens.reset_subscription_now(nome)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"ok": True, "subscription": sub}
+
+
 # ── Morning Digest ───────────────────────────────────────────────────────
 @app.get("/digest", dependencies=[Depends(require_api_key)])
 def get_morning_digest(cidade: str | None = None):
@@ -425,9 +658,65 @@ def _compute_agent_snapshot(agent_id: str) -> dict:
     }
 
 
+def _compute_git_project_snapshot(nome: str, caminho: str) -> dict:
+    """
+    Projetos de código não são 'agentes de fundo' no sentido de rodar
+    sozinhos — são uma checagem ao vivo do estado real do git. Por isso
+    não têm cadência/fase (every_min=None), mas ainda mostram há quanto
+    tempo foi o último commit, igual os outros agentes.
+    """
+    status = git_projects.get_git_status(caminho)
+    agent_id = f"git_{nome}"
+
+    if "erro" in status:
+        return {
+            "id": agent_id, "nome": nome, "icon": "💻",
+            "faz": f"Repositório git em {caminho}",
+            "every_min": None, "last": None, "age_min": None, "next_in_min": None, "phase": None,
+            "state": "off", "metric": "", "detail": status["erro"],
+            "run": None, "arquivo": caminho,
+        }
+
+    age_min = None
+    if status.get("commit_iso"):
+        try:
+            commit_dt = datetime.fromisoformat(status["commit_iso"])
+            age_min = (datetime.now(timezone.utc) - commit_dt).total_seconds() / 60
+        except ValueError:
+            age_min = None
+
+    if status["mudancas_pendentes"] > 0 or status["ahead"] > 0 or status["behind"] > 0:
+        state = "stale"
+    else:
+        state = "ok"
+
+    partes = []
+    if status["mudancas_pendentes"] > 0:
+        partes.append(f"{status['mudancas_pendentes']} pendente(s)")
+    if status["ahead"] > 0:
+        partes.append(f"{status['ahead']} à frente")
+    if status["behind"] > 0:
+        partes.append(f"{status['behind']} atrás")
+    metric = ", ".join(partes) if partes else "sincronizado"
+
+    return {
+        "id": agent_id, "nome": nome, "icon": "💻",
+        "faz": f"Repositório git (branch {status['branch']})",
+        "every_min": None,
+        "last": status.get("commit_iso"),
+        "age_min": round(age_min, 1) if age_min is not None else None,
+        "next_in_min": None, "phase": None,
+        "state": state, "metric": metric, "detail": status.get("commit_msg") or "",
+        "run": None, "arquivo": caminho,
+    }
+
+
 @app.get("/api/agents", dependencies=[Depends(require_api_key)])
 def get_agents_snapshot():
     agents = [_compute_agent_snapshot(agent_id) for agent_id in background_agents.AGENTS_REGISTRY]
+    agents += [
+        _compute_git_project_snapshot(p["nome"], p["caminho"]) for p in git_projects.load_code_projects()
+    ]
     resumo = {"total": len(agents), "ok": 0, "atencao": 0, "off": 0}
     pior = None
     pior_prioridade = -1
@@ -464,6 +753,12 @@ def run_news_radar_now():
 def run_morning_digest_now():
     background_agents.run_morning_digest_job(forcar=True)
     return {"ok": True, "snapshot": _compute_agent_snapshot("morning_digest")}
+
+
+@app.post("/agents/news_narration/run", dependencies=[Depends(require_api_key)])
+def run_news_narration_now():
+    background_agents.run_news_narration_job(forcar=True)
+    return {"ok": True, "snapshot": _compute_agent_snapshot("news_narration")}
 
 
 # As 8 áreas do "Second Brain" — memórias nessas categorias entram em TODA

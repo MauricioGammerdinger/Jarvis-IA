@@ -21,5 +21,6 @@ icalendar>=6.0.0
 recurring-ical-events>=3.0.0
 feedparser>=6.0.0
 requests>=2.31.0
+trafilatura>=1.8.0
 apscheduler>=3.10.0
 pywin32>=306; sys_platform == "win32"
