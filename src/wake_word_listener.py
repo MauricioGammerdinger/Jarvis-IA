@@ -205,13 +205,32 @@ def main():
             cooldown_until = time.time() + RECORD_SECONDS + 3  # bloqueia novas detecções durante o processamento
             handle_wake_word_detected()
 
+    # Grava "sinal de vida" no banco periodicamente — é isso que o painel
+    # de agentes lê pra saber que esse processo (separado do servidor
+    # principal) está de fato rodando. Não escreve a cada 100ms (seria
+    # sobrecarga à toa), só a cada 20s.
+    HEARTBEAT_INTERVAL = 20
+    last_heartbeat = 0.0
+
+    def write_heartbeat():
+        try:
+            import database as db
+            db.record_agent_run("hey_jarvis", "ok", "Ouvindo ativamente", "")
+        except Exception:
+            pass  # o heartbeat nunca pode derrubar o listener por causa de um erro de banco
+
     try:
         with sd.InputStream(
             channels=1, samplerate=SAMPLE_RATE, blocksize=CHUNK_SIZE, dtype="int16",
             callback=audio_callback, device=device,
         ):
+            write_heartbeat()
+            last_heartbeat = time.time()
             while True:
                 time.sleep(0.1)
+                if time.time() - last_heartbeat >= HEARTBEAT_INTERVAL:
+                    write_heartbeat()
+                    last_heartbeat = time.time()
     except KeyboardInterrupt:
         print("\n[jarvis] Encerrando.")
 

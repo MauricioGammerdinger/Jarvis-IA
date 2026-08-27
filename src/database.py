@@ -82,6 +82,17 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_state (
+                agent_id TEXT PRIMARY KEY,
+                last_run TEXT,
+                status TEXT NOT NULL DEFAULT 'idle',
+                detail TEXT,
+                metric TEXT
+            )
+            """
+        )
         conn.commit()
 
 
@@ -125,6 +136,29 @@ def save_news_cache(assunto: str, headlines: list[dict]) -> None:
             (assunto, json.dumps(headlines, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
         )
         conn.commit()
+
+
+# ── Estado dos agentes de fundo (prova de vida) ───────────────────────────
+def record_agent_run(agent_id: str, status: str, detail: str = "", metric: str = "") -> None:
+    """Grava que um agente rodou agora — a 'prova de vida' que o painel lê."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO agent_state (agent_id, last_run, status, detail, metric) VALUES (?, ?, ?, ?, ?)",
+            (agent_id, datetime.now(timezone.utc).isoformat(), status, detail, metric),
+        )
+        conn.commit()
+
+
+def get_agent_state(agent_id: str) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM agent_state WHERE agent_id = ?", (agent_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def get_all_agent_states() -> dict[str, dict]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM agent_state").fetchall()
+        return {r["agent_id"]: dict(r) for r in rows}
 
 
 # ── Memórias ─────────────────────────────────────────────────────────────

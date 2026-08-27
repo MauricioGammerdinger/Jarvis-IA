@@ -933,6 +933,58 @@ processo: a data saía com o mês em inglês (`27 de August de 2026`) por
 depender da configuração de idioma do sistema — corrigi com uma lista
 explícita de meses em português, igual já fazíamos com os dias da semana.
 
+## Painel de Agentes — vendo o que roda sozinho, de verdade
+
+Uma constelação animada mostrando os processos que rodam em segundo
+plano, sem você mandar nada: Triagem de E-mail (15 em 15 min), Radar de
+Notícias (30 em 30 min), Morning Digest (1x por dia, 7h), e o listener
+"Hey JARVIS" (contínuo). **A animação é o dado, não decoração**: o arco
+em volta de cada agente mostra a fração do ciclo já passada, a cor
+mostra o estado real, e pulsos de luz só nascem de agentes saudáveis.
+
+### Como funciona
+- `APScheduler` roda os 3 primeiros jobs sozinho, em segundo plano,
+  junto com o servidor — cada rodada grava "prova de vida" no banco
+  (tabela `agent_state`): quando rodou, se deu certo, e um resultado curto
+- O Hey JARVIS grava seu próprio heartbeat a cada 20s (ele é um processo
+  separado do servidor principal)
+- Um agente sem conta/assunto configurado aparece como **"desligado"**
+  (cinza, não é alarme) — não confundir com erro
+
+### Estados
+`ok` (rodou dentro do esperado) · `stale` (atrasado — passou de 2,5× a
+própria cadência) · `error` (falhou de verdade) · `idle` (nunca rodou) ·
+`off` (desligado por falta de configuração, de propósito)
+
+### Testado de ponta a ponta, com servidor real rodando
+- Os 3 jobs, nos cenários de sucesso, erro, e "sem configuração" (não
+  roda, não polui o painel)
+- O agendador disparando um job **sozinho**, sem eu chamar nada
+  manualmente
+- **O botão "rodar agora" provado com antes/depois do timestamp** — a
+  armadilha mais cara que existe nesse tipo de painel (documentada como
+  tal na referência que usei pra construir isso): botão que parece
+  funcionar mas só lê cache, sem executar nada de verdade
+- A interpolação de idade no cliente: testei que o arco avança sozinho
+  com o tempo real passando, sem esperar o próximo fetch (senão o arco
+  "congela" por 15s e dá saltos)
+- Clique no agente selecionando/desmarcando, nos dois sentidos
+  (constelação ↔ lista lateral)
+- Mobile (375px): sem rolagem horizontal, texto secundário escondido e
+  fonte do rótulo aumentada (SVG com viewBox encolhe texto proporcional
+  ao tamanho da tela — sem esse ajuste, ficaria ilegível)
+
+### Bug real que encontrei e corrigi nesse processo
+Minha primeira versão recriava o SVG inteiro a cada frame de animação
+(60x por segundo) — isso criava uma corrida entre o clique do usuário e
+o próximo redesenho, "arrancando" o elemento debaixo do clique antes
+dele completar. O clique simplesmente não registrava, e eu só descobri
+isso testando de verdade com automação de clique (não bastou olhar o
+código). Corrigi separando "desenhar a estrutura" (só quando os dados
+mudam, a cada fetch) de "animar" (só atualiza atributos dos elementos
+que já existem, nunca recria nada) — depois da correção, testei o
+clique de novo e confirmei que funciona sem nenhum truque.
+
 ## Fine-tuning — dando personalidade própria ao modelo
 
 Tem uma pasta `finetuning/` com um pipeline completo de LoRA fine-tuning

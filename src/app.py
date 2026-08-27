@@ -13,6 +13,8 @@ Pré-requisito: Ollama instalado e rodando, com o modelo baixado
 """
 
 import json
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 import logging
 import os
 import time
@@ -39,6 +41,7 @@ import llm_client
 import media
 import tts
 import calendar_hub
+import background_agents
 import email_hub
 import morning_digest
 import news_radar
@@ -158,7 +161,15 @@ REGRAS DE SEGURANÇA (inegociáveis):
 - Recuse conteúdo sexual envolvendo menores, discurso de ódio, ou atividades ilegais.
 - Ao recusar, seja breve e direto."""
 
-app = FastAPI(title="J.A.R.V.I.S. Local", version="1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    background_agents.start_scheduler()
+    logger.info("Agentes de fundo iniciados (triagem de e-mail, notícias, morning digest).")
+    yield
+    background_agents.stop_scheduler()
+
+
+app = FastAPI(title="J.A.R.V.I.S. Local", version="1.0", lifespan=lifespan)
 db.init_db()
 
 logger.info("=" * 60)
@@ -348,6 +359,111 @@ def remove_news_topic(assunto: str):
 @app.get("/digest", dependencies=[Depends(require_api_key)])
 def get_morning_digest(cidade: str | None = None):
     return morning_digest.generate_digest(cidade_clima=cidade)
+
+
+# ── Painel de Agentes ────────────────────────────────────────────────────
+# Constante nomeada, fácil de ajustar: um agente "atrasa" quando passa
+# desse múltiplo da própria cadência sem rodar.
+AGENT_STALE_FACTOR = 2.5
+# Pro Hey JARVIS (contínuo, sem cadência): grava heartbeat a cada 20s —
+# se passar bem disso sem atualizar, o processo provavelmente morreu.
+AGENT_CONTINUOUS_STALE_SECONDS = 90
+
+
+def _compute_agent_snapshot(agent_id: str) -> dict:
+    meta = background_agents.AGENTS_REGISTRY[agent_id]
+    state_row = db.get_agent_state(agent_id)
+    now = datetime.now(timezone.utc)
+    off = background_agents.is_agent_off(agent_id)
+
+    last_iso = state_row["last_run"] if state_row else None
+    age_min = None
+    if last_iso:
+        try:
+            last_dt = datetime.fromisoformat(last_iso)
+            age_min = (now - last_dt).total_seconds() / 60
+        except ValueError:
+            age_min = None  # timestamp corrompido — trata como se nunca tivesse rodado
+
+    every_min = meta["every_min"]
+    phase = None
+    next_in_min = None
+    if every_min is not None and age_min is not None:
+        phase = min(1.0, age_min / every_min)
+        next_in_min = max(0.0, every_min - age_min)
+
+    if off:
+        state = "off"
+    elif age_min is None:
+        state = "idle"
+    elif state_row["status"] == "error":
+        state = "error"
+    elif every_min is not None and age_min > every_min * AGENT_STALE_FACTOR:
+        state = "stale"
+    elif every_min is None and age_min * 60 > AGENT_CONTINUOUS_STALE_SECONDS:
+        state = "stale"
+    else:
+        state = "ok"
+
+    run = {"url": meta["run_path"], "method": "POST", "body": {}} if meta["run_path"] else None
+
+    return {
+        "id": agent_id,
+        "nome": meta["nome"],
+        "icon": meta["icon"],
+        "faz": meta["faz"],
+        "every_min": every_min,
+        "last": last_iso,
+        "age_min": round(age_min, 1) if age_min is not None else None,
+        "next_in_min": round(next_in_min, 1) if next_in_min is not None else None,
+        "phase": round(phase, 3) if phase is not None else None,
+        "state": state,
+        "metric": (state_row["metric"] if state_row else "") or "",
+        "detail": (state_row["detail"] if state_row else "") or "",
+        "run": run,
+        "arquivo": meta["arquivo"],
+    }
+
+
+@app.get("/api/agents", dependencies=[Depends(require_api_key)])
+def get_agents_snapshot():
+    agents = [_compute_agent_snapshot(agent_id) for agent_id in background_agents.AGENTS_REGISTRY]
+    resumo = {"total": len(agents), "ok": 0, "atencao": 0, "off": 0}
+    pior = None
+    pior_prioridade = -1
+    prioridade_por_estado = {"error": 3, "stale": 2, "idle": 1, "ok": 0, "off": -1}
+    for a in agents:
+        if a["state"] in ("ok",):
+            resumo["ok"] += 1
+        elif a["state"] == "off":
+            resumo["off"] += 1
+        else:
+            resumo["atencao"] += 1
+        prioridade = prioridade_por_estado.get(a["state"], 0)
+        if prioridade > pior_prioridade:
+            pior_prioridade = prioridade
+            pior = a["id"]
+    resumo["pior"] = pior
+
+    return {"ok": True, "now": datetime.now(timezone.utc).isoformat(), "agents": agents, "resumo": resumo}
+
+
+@app.post("/agents/email_triage/run", dependencies=[Depends(require_api_key)])
+def run_email_triage_now():
+    background_agents.run_email_triage_job()
+    return {"ok": True, "snapshot": _compute_agent_snapshot("email_triage")}
+
+
+@app.post("/agents/news_radar/run", dependencies=[Depends(require_api_key)])
+def run_news_radar_now():
+    background_agents.run_news_radar_job()
+    return {"ok": True, "snapshot": _compute_agent_snapshot("news_radar")}
+
+
+@app.post("/agents/morning_digest/run", dependencies=[Depends(require_api_key)])
+def run_morning_digest_now():
+    background_agents.run_morning_digest_job(forcar=True)
+    return {"ok": True, "snapshot": _compute_agent_snapshot("morning_digest")}
 
 
 # As 8 áreas do "Second Brain" — memórias nessas categorias entram em TODA

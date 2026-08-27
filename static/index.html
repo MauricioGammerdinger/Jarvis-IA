@@ -291,6 +291,65 @@
   .hub-day-label:first-child { margin-top: 0; }
   .hub-error-card { border-color: var(--red); color: var(--red); font-size: 12.5px; }
 
+  /* ── Painel de Agentes — constelação animada ─────────────────────── */
+  .agents-layout { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+  .agents-constellation-wrap { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; padding: 12px; }
+  #agentsSvg { width: 100%; height: 100%; max-width: 700px; }
+  .agents-side { width: 280px; flex-shrink: 0; border-left: 1px solid var(--line); padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+
+  .agents-summary { display: flex; gap: 8px; flex-wrap: wrap; }
+  .agents-summary-chip { flex: 1; min-width: 70px; text-align: center; padding: 8px 6px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); }
+  .agents-summary-chip .num { font-size: 18px; font-weight: 700; display: block; }
+  .agents-summary-chip .label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; }
+
+  .agents-detail { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 14px; font-size: 12.5px; }
+  .agents-detail h4 { margin: 0 0 8px; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+  .agents-detail-row { display: flex; justify-content: space-between; padding: 3px 0; color: var(--text-dim); gap: 8px; }
+  .agents-detail-row b { color: var(--text); font-weight: 500; text-align: right; }
+  .agents-run-btn {
+    margin-top: 10px; width: 100%; background: var(--cyan-dim); color: var(--cyan);
+    border: 1px solid var(--cyan); border-radius: 8px; padding: 9px; font-weight: 700;
+    font-size: 12.5px; cursor: pointer;
+  }
+  .agents-run-btn:hover { background: var(--cyan); color: #061014; }
+  .agents-run-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  .agents-list { display: flex; flex-direction: column; gap: 4px; }
+  .agents-list-item {
+    display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px;
+    font-size: 12.5px; cursor: pointer; color: var(--text-dim);
+  }
+  .agents-list-item:hover { background: var(--panel-2); }
+  .agents-list-item.selected { background: var(--panel-2); color: var(--text); border: 1px solid var(--border-strong, var(--cyan)); }
+  .agents-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  .agent-node { cursor: pointer; }
+  .agent-node text { font-family: var(--font-body, inherit); user-select: none; }
+  .agent-hex { transition: filter .15s; }
+  .agent-node:hover .agent-hex { filter: brightness(1.25); }
+  .agent-node.selected .agent-hex { stroke-width: 3; }
+
+  @keyframes agents-breathe { 0%, 100% { opacity: .85; } 50% { opacity: 1; } }
+  @keyframes agents-error-pulse { 0%, 100% { opacity: .7; transform: scale(1); } 50% { opacity: 1; transform: scale(1.08); } }
+  @keyframes agents-arc-blink { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+  .agents-core-shape { animation: agents-breathe 3s ease-in-out infinite; transform-origin: center; }
+  .agent-error-pulse { animation: agents-error-pulse 1.1s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+  .agent-arc-urgent { animation: agents-arc-blink 1s ease-in-out infinite; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .agents-core-shape, .agent-error-pulse, .agent-arc-urgent { animation: none !important; }
+  }
+
+  @media (max-width: 780px) {
+    .agents-layout { flex-direction: column; overflow-y: auto; }
+    .agents-side { width: 100%; border-left: none; border-top: 1px solid var(--line); }
+    .agents-constellation-wrap { min-height: 320px; flex-shrink: 0; }
+    /* SVG com viewBox encolhe o texto junto — compensa aumentando a fonte
+       e escondendo o texto secundário (a lista lateral já dá essa info). */
+    .agent-label-name { font-size: 16px !important; }
+    .agent-label-metric { display: none; }
+  }
+
   .brain-editor {
     position: fixed; inset: 0; background: rgba(4,6,10,.7); display: flex;
     align-items: center; justify-content: center; z-index: 30; padding: 20px;
@@ -685,6 +744,10 @@
     <div class="session-list" id="sessionList"></div>
 
     <div class="sidebar-footer">
+      <button class="sidebar-nav-item" id="agentsTabBtn">
+        <span>🌌 Agentes</span>
+        <span class="badge" id="agentsAttentionBadge"></span>
+      </button>
       <button class="sidebar-nav-item" id="digestBtn">
         <span>🌅 Bom dia (Digest)</span>
       </button>
@@ -867,6 +930,25 @@
         <div class="empty-state">Carregando...</div>
       </div>
     </div>
+
+    <div class="panel" data-panel="agents">
+      <div class="hub-toolbar">
+        <strong>🌌 Painel de Agentes</strong>
+        <button id="agentsReloadBtn" class="icon-btn" title="Recarregar">⟳</button>
+      </div>
+      <div class="agents-layout">
+        <div class="agents-constellation-wrap">
+          <svg id="agentsSvg" viewBox="0 0 700 500" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+        <div class="agents-side">
+          <div class="agents-summary" id="agentsSummary"></div>
+          <div class="agents-detail" id="agentsDetail">
+            <div class="empty-state">Clique num agente pra ver detalhes.</div>
+          </div>
+          <div class="agents-list" id="agentsList"></div>
+        </div>
+      </div>
+    </div>
   </main>
 </div>
 
@@ -908,6 +990,7 @@
     if (name === "agenda") loadAgenda();
     if (name === "email") loadEmails();
     if (name === "news") loadNews();
+    if (name === "agents") loadAgentsPanel();
     if (name === "settings") { loadMicDevices(); loadApps(); loadCalendarsConfig(); loadEmailAccountsConfig(); loadNewsTopicsConfig(); }
     closeSidebarOnMobile();
   }
@@ -1941,6 +2024,353 @@
       loadNewsTopicsConfig();
     } catch (err) { resultEl.textContent = "Falha: " + err.message; }
   });
+
+  // ── Painel de Agentes — constelação animada ─────────────────────────
+  // Cores vêm das MESMAS variáveis de tema já usadas no resto do app —
+  // nunca hex fixo escolhido "por gosto", como o documento de referência exige.
+  const AGENT_STATE_COLORS = {
+    ok: "var(--green)",
+    stale: "var(--amber)",
+    error: "var(--red)",
+    idle: "var(--text-dim)",
+    off: "var(--text-dim)",
+  };
+  const AGENT_STATE_LABELS = {
+    ok: "Em dia", stale: "Atrasado", error: "Erro", idle: "Nunca rodou", off: "Desligado",
+  };
+
+  let agentsSnapshot = null;
+  let agentsFetchTime = 0;
+  let agentsSelectedId = null;
+  let agentsRafId = null;
+  let agentsPollInterval = null;
+  let agentsParticles = [];
+  let agentsLastSpawnByAgent = {};
+
+  function formatRelativeTime(minutos) {
+    if (minutos === null || minutos === undefined) return "nunca";
+    if (minutos < 1) return "agora mesmo";
+    if (minutos < 60) return `há ${Math.round(minutos)} min`;
+    const horas = minutos / 60;
+    if (horas < 24) return `há ${horas.toFixed(1).replace(".0", "")} h`;
+    return `há ${Math.round(horas / 24)} dias`;
+  }
+  function formatNextIn(minutos) {
+    if (minutos === null || minutos === undefined) return "sem ciclo (contínuo)";
+    if (minutos <= 0) return "a qualquer momento";
+    if (minutos < 60) return `em ${Math.round(minutos)} min`;
+    return `em ${(minutos / 60).toFixed(1).replace(".0", "")} h`;
+  }
+  function formatCadence(everyMin) {
+    if (everyMin === null || everyMin === undefined) return "contínuo";
+    if (everyMin >= 1440) return `1× por dia`;
+    if (everyMin >= 60) return `a cada ${(everyMin / 60).toFixed(1).replace(".0", "")} h`;
+    return `a cada ${everyMin} min`;
+  }
+
+  async function loadAgentsPanel() {
+    await fetchAgentsSnapshot();
+    startAgentsAnimation();
+    if (!agentsPollInterval) {
+      agentsPollInterval = setInterval(() => {
+        if (document.visibilityState === "visible") fetchAgentsSnapshot();
+      }, 15000);
+    }
+  }
+
+  async function fetchAgentsSnapshot() {
+    if (!apiKey) return;
+    try {
+      const res = await fetch(serverUrl + "/api/agents", { headers: { "X-API-Key": apiKey } });
+      agentsSnapshot = await res.json();
+      agentsFetchTime = Date.now();
+      renderAgentsStructure();
+      renderAgentsSummaryAndList();
+      renderAgentsDetail();
+      const atencao = (agentsSnapshot.resumo && agentsSnapshot.resumo.atencao) || 0;
+      const badge = $("agentsAttentionBadge");
+      if (badge) badge.textContent = atencao || "";
+    } catch (err) {
+      $("agentsSvg").innerHTML = `<text x="350" y="250" text-anchor="middle" fill="var(--red)" font-size="13">Falha ao carregar: ${escapeHtml(err.message)}</text>`;
+    }
+  }
+
+  // Recalcula phase/age no CLIENTE a cada frame, somando o tempo de parede
+  // decorrido desde o último fetch — sem isso, o arco fica "congelado"
+  // entre uma atualização e outra (armadilha nº2 do documento de referência).
+  function getInterpolatedAgents() {
+    if (!agentsSnapshot) return [];
+    const elapsedMin = (Date.now() - agentsFetchTime) / 60000;
+    return agentsSnapshot.agents.map((a) => {
+      if (a.age_min === null || a.every_min === null) return { ...a, age_min: a.age_min === null ? null : a.age_min + elapsedMin };
+      const ageMin = a.age_min + elapsedMin;
+      const phase = Math.min(1, ageMin / a.every_min);
+      const nextInMin = Math.max(0, a.every_min - ageMin);
+      return { ...a, age_min: ageMin, phase, next_in_min: nextInMin };
+    });
+  }
+
+  function renderAgentsSummaryAndList() {
+    if (!agentsSnapshot) return;
+    const r = agentsSnapshot.resumo;
+    $("agentsSummary").innerHTML = `
+      <div class="agents-summary-chip"><span class="num" style="color:var(--green)">${r.ok}</span><span class="label">Em dia</span></div>
+      <div class="agents-summary-chip"><span class="num" style="color:var(--amber)">${r.atencao}</span><span class="label">Atenção</span></div>
+      <div class="agents-summary-chip"><span class="num" style="color:var(--text-dim)">${r.off}</span><span class="label">Desligado</span></div>
+    `;
+
+    const listEl = $("agentsList");
+    listEl.innerHTML = "";
+    agentsSnapshot.agents.forEach((a) => {
+      const item = document.createElement("div");
+      item.className = "agents-list-item" + (a.id === agentsSelectedId ? " selected" : "");
+      item.innerHTML = `<span class="agents-status-dot" style="background:${AGENT_STATE_COLORS[a.state]}"></span>${escapeHtml(a.icon)} ${escapeHtml(a.nome)} — ${AGENT_STATE_LABELS[a.state]}`;
+      item.addEventListener("click", () => selectAgent(a.id === agentsSelectedId ? null : a.id));
+      listEl.appendChild(item);
+    });
+  }
+
+  function renderAgentsDetail() {
+    const el = $("agentsDetail");
+    if (!agentsSelectedId || !agentsSnapshot) {
+      el.innerHTML = '<div class="empty-state">Clique num agente pra ver detalhes.</div>';
+      return;
+    }
+    const a = agentsSnapshot.agents.find((x) => x.id === agentsSelectedId);
+    if (!a) { el.innerHTML = '<div class="empty-state">Agente não encontrado.</div>'; return; }
+
+    el.innerHTML = `
+      <h4>${escapeHtml(a.icon)} ${escapeHtml(a.nome)}</h4>
+      <div class="agents-detail-row"><span>Estado</span><b style="color:${AGENT_STATE_COLORS[a.state]}">${AGENT_STATE_LABELS[a.state]}</b></div>
+      <div class="agents-detail-row"><span>Faz</span><b>${escapeHtml(a.faz)}</b></div>
+      <div class="agents-detail-row"><span>Cadência</span><b>${formatCadence(a.every_min)}</b></div>
+      <div class="agents-detail-row"><span>Última rodada</span><b title="${escapeHtml(a.last || "")}">${formatRelativeTime(a.age_min)}</b></div>
+      <div class="agents-detail-row"><span>Próxima</span><b>${formatNextIn(a.next_in_min)}</b></div>
+      ${a.metric ? `<div class="agents-detail-row"><span>Resultado</span><b>${escapeHtml(a.metric)}</b></div>` : ""}
+      ${a.detail ? `<div class="agents-detail-row"><span>Nota</span><b>${escapeHtml(a.detail)}</b></div>` : ""}
+      <div class="agents-detail-row"><span>Onde mora</span><b>${escapeHtml(a.arquivo)}</b></div>
+      ${a.run ? `<button class="agents-run-btn" id="agentsRunNowBtn">▶ Rodar agora</button>` : ""}
+    `;
+    const runBtn = document.getElementById("agentsRunNowBtn");
+    if (runBtn) {
+      runBtn.addEventListener("click", async () => {
+        runBtn.disabled = true;
+        runBtn.textContent = "Rodando...";
+        try {
+          const res = await fetch(serverUrl + a.run.url, {
+            method: a.run.method, headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
+            body: JSON.stringify(a.run.body || {}),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            runBtn.textContent = "Falhou: " + (err.detail || res.status);
+          } else {
+            await fetchAgentsSnapshot(); // recarrega o snapshot de verdade — nunca finge sucesso
+            runBtn.textContent = "✓ Concluído";
+          }
+        } catch (err) {
+          runBtn.textContent = "Falha: " + err.message;
+        }
+        setTimeout(() => { if (document.getElementById("agentsRunNowBtn")) renderAgentsDetail(); }, 1500);
+      });
+    }
+  }
+
+  function selectAgent(id) {
+    agentsSelectedId = id;
+    renderAgentsSummaryAndList();
+    renderAgentsDetail();
+    updateAgentsSelectionHighlight();
+  }
+
+  // Guarda a última "assinatura" de agentes (ids em ordem) — só reconstrói
+  // a estrutura do zero quando essa lista realmente muda; do contrário,
+  // as próximas rodadas só ATUALIZAM atributos dos elementos existentes.
+  // Isso corrige um bug real que encontrei testando: recriar o SVG inteiro
+  // a cada frame (60x/s) cria uma corrida entre o clique do usuário e o
+  // próximo redesenho, arrancando o elemento debaixo do clique antes dele
+  // completar — o clique simplesmente não registrava.
+  let agentsLastStructureSignature = null;
+
+  function hexPoints(cx, cy, r) {
+    return Array.from({ length: 6 }, (_, i) => {
+      const angle = (Math.PI / 3) * i - Math.PI / 2;
+      return `${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`;
+    }).join(" ");
+  }
+
+  const AGENTS_LAYOUT = { CX: 350, CY: 220, RX: 240, RY: 140, HEX_R: 32, CORE_R: 42 };
+
+  function renderAgentsStructure() {
+    const svg = $("agentsSvg");
+    if (!svg || !agentsSnapshot) return;
+    const { CX, CY, RX, RY, HEX_R, CORE_R } = AGENTS_LAYOUT;
+    const agents = agentsSnapshot.agents;
+
+    let svgContent = "";
+    svgContent += `<polygon class="agents-core-shape" points="${hexPoints(CX, CY, CORE_R)}" fill="var(--cyan-dim)" stroke="var(--cyan)" stroke-width="2" />`;
+    svgContent += `<circle cx="${CX}" cy="${CY}" r="${CORE_R + 10}" fill="none" stroke="var(--cyan)" stroke-width="1" opacity="0.35" stroke-dasharray="4 6">
+      <animateTransform attributeName="transform" type="rotate" from="0 ${CX} ${CY}" to="360 ${CX} ${CY}" dur="18s" repeatCount="indefinite" />
+    </circle>`;
+    svgContent += `<circle cx="${CX}" cy="${CY}" r="${CORE_R + 20}" fill="none" stroke="var(--accent, var(--cyan))" stroke-width="1" opacity="0.2" stroke-dasharray="2 10">
+      <animateTransform attributeName="transform" type="rotate" from="360 ${CX} ${CY}" to="0 ${CX} ${CY}" dur="26s" repeatCount="indefinite" />
+    </circle>`;
+    svgContent += `<text x="${CX}" y="${CY + 5}" text-anchor="middle" font-size="18">🧠</text>`;
+
+    agents.forEach((a, i) => {
+      const angle = (2 * Math.PI * i) / agents.length - Math.PI / 2;
+      const ax = CX + RX * Math.cos(angle);
+      const ay = CY + RY * Math.sin(angle);
+      const color = AGENT_STATE_COLORS[a.state];
+      const isTrulyContinuous = a.every_min === null;
+      const arcR = HEX_R + 9;
+      const circumference = 2 * Math.PI * arcR;
+
+      svgContent += `<line x1="${CX}" y1="${CY}" x2="${ax}" y2="${ay}" stroke="var(--line)" stroke-width="1" opacity="0.4" />`;
+
+      if (isTrulyContinuous) {
+        // Contínuo de verdade (ex: Hey JARVIS): arco curto girando devagar, indicando "vivo" —
+        // não precisa atualizar por frame, a própria animação SMIL do SVG cuida disso sozinha.
+        svgContent += `<circle cx="${ax}" cy="${ay}" r="${arcR}" fill="none" stroke="${color}" stroke-width="3"
+          stroke-dasharray="18 ${circumference}" stroke-linecap="round" opacity="0.8">
+          <animateTransform attributeName="transform" type="rotate" from="0 ${ax} ${ay}" to="360 ${ax} ${ay}" dur="6s" repeatCount="indefinite" />
+        </circle>`;
+      } else {
+        // Tem cadência: círculo de fundo (estático) + arco com id estável, que a
+        // função de animação por frame atualiza só no stroke-dasharray.
+        svgContent += `<circle cx="${ax}" cy="${ay}" r="${arcR}" fill="none" stroke="var(--line)" stroke-width="3" opacity="0.5" />`;
+        svgContent += `<circle id="arc-${a.id}" cx="${ax}" cy="${ay}" r="${arcR}" fill="none" stroke="${color}" stroke-width="3"
+          stroke-dasharray="0 ${circumference}" stroke-linecap="round" transform="rotate(-90 ${ax} ${ay})" data-circumference="${circumference}" />`;
+      }
+
+      const errorClass = a.state === "error" ? " agent-error-pulse" : "";
+      svgContent += `<g class="agent-node" data-agent-id="${a.id}" data-ax="${ax}" data-ay="${ay}" data-color="${color}">
+        <title>${escapeHtml(a.nome)} — ${AGENT_STATE_LABELS[a.state]}\n${escapeHtml(a.faz)}\nÚltima: ${formatRelativeTime(a.age_min)} · Próxima: ${formatNextIn(a.next_in_min)}</title>
+        <polygon class="agent-hex${errorClass}" points="${hexPoints(ax, ay, HEX_R)}" fill="var(--panel-2)" stroke="${color}" stroke-width="2" />
+        <text x="${ax}" y="${ay + 6}" text-anchor="middle" font-size="18">${escapeHtml(a.icon)}</text>
+        <text class="agent-label-name" x="${ax}" y="${ay + HEX_R + 16}" text-anchor="middle" font-size="11" fill="var(--text)">${escapeHtml(a.nome)}</text>
+        ${a.metric ? `<text class="agent-label-metric" x="${ax}" y="${ay + HEX_R + 30}" text-anchor="middle" font-size="9.5" fill="var(--text-dim)">${escapeHtml(a.metric)}</text>` : ""}
+      </g>`;
+    });
+
+    svg.innerHTML = svgContent;
+    svg.querySelectorAll(".agent-node").forEach((node) => {
+      node.addEventListener("click", () => {
+        const id = node.dataset.agentId;
+        selectAgent(id === agentsSelectedId ? null : id);
+      });
+    });
+    agentsLastStructureSignature = agents.map((a) => a.id).join(",");
+    updateAgentsSelectionHighlight();
+  }
+
+  function updateAgentsSelectionHighlight() {
+    const svg = $("agentsSvg");
+    if (!svg) return;
+    svg.querySelectorAll(".agent-node").forEach((node) => {
+      const isSelected = node.dataset.agentId === agentsSelectedId;
+      node.classList.toggle("selected", isSelected);
+      const hex = node.querySelector(".agent-hex");
+      if (hex) hex.setAttribute("stroke-width", isSelected ? "3" : "2");
+    });
+  }
+
+  // Chamada a cada frame — só ATUALIZA atributos de elementos já existentes
+  // (arcos e partículas), nunca recria a estrutura. É isso que resolve o
+  // bug do clique e evita o trabalho desnecessário de recriar tudo 60x/s.
+  function updateAgentsAnimationFrame() {
+    const svg = $("agentsSvg");
+    if (!svg || !agentsSnapshot) return;
+    const { CX, CY } = AGENTS_LAYOUT;
+    const agents = getInterpolatedAgents();
+
+    agents.forEach((a) => {
+      if (a.every_min === null) return; // contínuo — a animação SMIL já cuida sozinha
+      const arcEl = svg.querySelector(`#arc-${CSS.escape(a.id)}`);
+      if (!arcEl) return;
+      const circumference = parseFloat(arcEl.dataset.circumference);
+      const phaseValue = a.phase !== null ? a.phase : 0;
+      arcEl.setAttribute("stroke-dasharray", `${phaseValue * circumference} ${circumference}`);
+      arcEl.classList.toggle("agent-arc-urgent", phaseValue > 0.92);
+
+      // Spawna pulsos só de agentes SAUDÁVEIS
+      if (a.state === "ok") {
+        const node = svg.querySelector(`.agent-node[data-agent-id="${CSS.escape(a.id)}"]`);
+        if (node) {
+          const spawnIntervalMs = Math.max(900, Math.min(3200, (a.every_min || 60) * 20));
+          const lastSpawn = agentsLastSpawnByAgent[a.id] || 0;
+          if (Date.now() - lastSpawn > spawnIntervalMs) {
+            agentsLastSpawnByAgent[a.id] = Date.now();
+            spawnAgentParticle(parseFloat(node.dataset.ax), parseFloat(node.dataset.ay), node.dataset.color);
+          }
+        }
+      }
+    });
+
+    // Também cobre agentes contínuos (ex: Hey JARVIS) pra emissão de pulso
+    agents.filter((a) => a.every_min === null && a.state === "ok").forEach((a) => {
+      const node = svg.querySelector(`.agent-node[data-agent-id="${CSS.escape(a.id)}"]`);
+      if (!node) return;
+      const spawnIntervalMs = 2200;
+      const lastSpawn = agentsLastSpawnByAgent[a.id] || 0;
+      if (Date.now() - lastSpawn > spawnIntervalMs) {
+        agentsLastSpawnByAgent[a.id] = Date.now();
+        spawnAgentParticle(parseFloat(node.dataset.ax), parseFloat(node.dataset.ay), node.dataset.color);
+      }
+    });
+
+    // Atualiza posição das partículas já existentes (elementos reais, não recriados)
+    const now = Date.now();
+    agentsParticles = agentsParticles.filter((p) => {
+      const alive = now - p.startTime < p.duration;
+      if (!alive) p.el.remove();
+      return alive;
+    });
+    agentsParticles.forEach((p) => {
+      const t = (now - p.startTime) / p.duration;
+      const eased = t * t;
+      const px = p.x0 + (CX - p.x0) * eased;
+      const py = p.y0 + (CY - p.y0) * eased;
+      p.el.setAttribute("cx", px);
+      p.el.setAttribute("cy", py);
+      p.el.setAttribute("opacity", 1 - t * 0.3);
+    });
+  }
+
+  function spawnAgentParticle(x0, y0, color) {
+    const svg = $("agentsSvg");
+    if (!svg) return;
+    const el = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    el.setAttribute("r", "3");
+    el.setAttribute("cx", x0);
+    el.setAttribute("cy", y0);
+    el.setAttribute("fill", color);
+    svg.appendChild(el);
+    agentsParticles.push({ el, x0, y0, startTime: Date.now(), duration: 1400 });
+  }
+
+  function startAgentsAnimation() {
+    if (agentsRafId) return; // já rodando
+    function frame() {
+      if (document.visibilityState === "visible" && document.querySelector('.panel[data-panel="agents"]').classList.contains("active")) {
+        updateAgentsAnimationFrame();
+        agentsRafId = requestAnimationFrame(frame);
+      } else {
+        agentsRafId = null; // para de vez — religa só quando o painel abrir de novo
+      }
+    }
+    agentsRafId = requestAnimationFrame(frame);
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && document.querySelector('.panel[data-panel="agents"]')?.classList.contains("active")) {
+      startAgentsAnimation();
+      fetchAgentsSnapshot();
+    }
+  });
+
+  $("agentsTabBtn").addEventListener("click", () => showPanel("agents"));
+  $("agentsReloadBtn")?.addEventListener("click", fetchAgentsSnapshot);
 
   async function loadCommands() {
     const el = $("commandsInner");
