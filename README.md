@@ -171,6 +171,10 @@ jarvis-ia/
 │   ├── google_calendar.py                      # Integração com Google Calendar
 │   ├── mouse_control.py                          # Controle de mouse/teclado (clicar, digitar)
 │   ├── smart_light.py                              # Controle de lâmpada Tapo/Kasa (opcional)
+│   ├── calendar_hub.py                              # Central de Agenda (mescla via iCal)
+│   ├── email_hub.py                                  # Central de E-mails (IMAP + triagem)
+│   ├── news_radar.py                                 # Radar de Notícias (RSS)
+│   ├── morning_digest.py                             # Morning Digest (junta os 3 acima)
 │   ├── wake_word_listener.py                   # "Hey JARVIS" — ativação por voz
 │   └── tray_app.py                               # Ícone na bandeja do sistema
 │
@@ -233,6 +237,10 @@ na raiz do projeto, não dentro de `src/`.
 | `list_calendar_events` / `create_calendar_event` | Integração com Google Calendar (opcional) |
 | `controlar_luz` | Liga/desliga/ajusta brilho de lâmpada Tapo/Kasa (opcional) |
 | `iniciar_configuracao_second_brain` | Inicia a entrevista guiada do Second Brain |
+| `ver_agenda_hoje` / `ver_agenda_semana` / `proximo_compromisso` | Central de Agenda (múltiplas agendas mescladas) |
+| `ver_emails` / `atualizar_emails` | Central de E-mails (triagem em Ação/Info/Ruído) |
+| `ver_noticias` / `gerenciar_assuntos_noticia` | Radar de Notícias (RSS, grátis) |
+| `gerar_morning_digest` | Briefing matinal falado, junta os 3 módulos acima |
 | `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
@@ -853,6 +861,77 @@ excluir uma nota.
   começa exatamente no centro e termina exatamente no nó de destino)
 - **Não testado**: a animação rodando de verdade num navegador (só a
   matemática por trás dela) — visualmente só valida no seu PC
+
+## Central de Agenda, E-mails, Notícias e Morning Digest
+
+Quatro módulos que juntam informação do seu dia a dia — tudo rodando no
+seu backend Python (sem "proxy" separado, sem CORS pra resolver, sem
+pagar API por token: a triagem de e-mail e o digest usam seu próprio
+Ollama local).
+
+### 📅 Agenda
+Mescla várias agendas do Google (contas diferentes inclusive) numa
+timeline só. Não usa OAuth — usa o **"endereço secreto em formato iCal"**
+de cada agenda (Google Agenda → ⚙ Configurações → clica na agenda →
+"Integrar agenda" → copia o link). Mais simples que configurar OAuth pra
+cada conta extra.
+
+Comandos: `"o que eu tenho hoje?"`, `"minha agenda da semana"`, `"qual meu
+próximo compromisso?"`. Configura pela tela (Configurar → Agendas) ou
+direto na conversa (`"adiciona minha agenda de trabalho: [link]"`).
+
+**Testado**: parsing de fuso horário, UTC, evento de dia inteiro,
+recorrência (RRULE) e exclusão (EXDATE) — os 5 pontos que o próprio
+material de referência avisa serem os que mais quebram em implementações
+amadoras. Uma agenda com link quebrado não derruba as outras.
+
+### 📧 E-mails
+Conecta em quantas contas IMAP quiser (Gmail, Outlook, Yahoo, iCloud) e
+classifica os e-mails recentes em 3 baldes: **Ação** (pede resposta/tem
+prazo), **Info** (vale saber, não exige nada), **Ruído** (newsletter,
+promoção). A classificação usa seu modelo Ollama local, numa única
+chamada por lote — e fica em cache por Message-ID, então o mesmo e-mail
+nunca é reclassificado duas vezes.
+
+⚠️ **Nunca use a senha normal da conta.** Precisa de uma "senha de app":
+1. Ativa verificação em 2 etapas (myaccount.google.com/security)
+2. Gera a senha em myaccount.google.com/apppasswords
+3. Cola essa senha de 16 letras (não a senha normal)
+
+O JARVIS só lê (`BODY.PEEK`, nunca marca como lido), nunca envia, apaga
+ou modifica nada. Só hosts IMAP conhecidos são aceitos (Gmail, Outlook,
+Yahoo, iCloud) — não dá pra usar como proxy genérico.
+
+**Testado**: decodificação de assunto acentuado (MIME encoded-word,
+formato real do Gmail), extração de corpo preferindo texto puro sobre
+HTML, cache confirmado (mandei o mesmo e-mail duas vezes, a segunda não
+chamou o modelo de novo), fallback por heurística quando o modelo não
+está disponível ou devolve algo que não é JSON válido.
+
+### 📰 Notícias
+Manchetes por assunto via RSS do Google News — grátis, sem chave de API.
+Configura os assuntos que quiser acompanhar (Configurar → Assuntos de
+notícia). Cache de 30 minutos por assunto, pra não buscar à toa.
+
+**Testado**: parsing de RSS no formato real do Google News (remoção do
+sufixo " - Fonte" do título, extração de fonte/link/data).
+
+### 🌅 Morning Digest
+Um briefing falado que junta os 3 módulos acima + previsão do tempo
+(Open-Meteo, grátis, sem chave) + uma meta do Second Brain, numa única
+chamada ao modelo local. Dispara com o botão "🌅 Bom dia" na barra
+lateral, ou pedindo `"bom dia"` na conversa.
+
+**Nunca fica mudo**: se o Ollama não estiver disponível, cai
+automaticamente pra um template local (sem IA) que ainda inclui todos os
+dados reais — só perde a naturalidade do texto, não a informação.
+
+**Testado**: fallback offline com todos os dados presentes, geocodificação
+de cidade com cache (não geocodifica de novo pra mesma cidade), tradução
+de código de clima pra português. Encontrei e corrigi um bug real nesse
+processo: a data saía com o mês em inglês (`27 de August de 2026`) por
+depender da configuração de idioma do sistema — corrigi com uma lista
+explícita de meses em português, igual já fazíamos com os dias da semana.
 
 ## Fine-tuning — dando personalidade própria ao modelo
 

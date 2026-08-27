@@ -22,10 +22,14 @@ from pathlib import Path
 import httpx
 from PIL import Image, ImageGrab
 
+import calendar_hub
 import database as db
+import email_hub
 import embeddings
 import google_calendar
+import morning_digest
 import mouse_control
+import news_radar
 import smart_light
 import word_control
 
@@ -421,6 +425,120 @@ TOOLS = [
             "required": ["nome", "comando"],
         },
     },
+    {
+        "name": "ver_agenda_hoje",
+        "description": "Lista os eventos de HOJE, de todas as agendas configuradas, mesclados em ordem de horário.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "ver_agenda_semana",
+        "description": "Lista os eventos dos próximos 7 dias, de todas as agendas configuradas.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "proximo_compromisso",
+        "description": "Mostra o PRÓXIMO evento a partir de agora, com contagem regressiva (ex: 'em 2h 15min').",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "cadastrar_agenda",
+        "description": (
+            "Adiciona uma agenda do Google pra ser mesclada na Central de Agenda. Precisa do "
+            "'endereço secreto em formato iCal' — o usuário pega em: Google Agenda → "
+            "Configurações → clica na agenda na lista → 'Integrar agenda' → copia o link. "
+            "Se o usuário não souber pegar esse link, explique o caminho acima."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nome": {"type": "string", "description": "Nome pra identificar essa agenda (ex: 'Pessoal', 'Trabalho')."},
+                "cor": {"type": "string", "description": "Cor em hex pra diferenciar visualmente (ex: '#5fe3f0'). Se não souber, use uma cor razoável."},
+                "ics_url": {"type": "string", "description": "O link 'endereço secreto em formato iCal' completo."},
+            },
+            "required": ["nome", "ics_url"],
+        },
+    },
+    {
+        "name": "listar_agendas",
+        "description": "Lista as agendas do Google já configuradas na Central de Agenda.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "ver_emails",
+        "description": (
+            "Mostra os e-mails já triados, filtrados por balde. USE 'acao' quando o usuário "
+            "perguntar o que precisa responder/fazer, 'info' pra coisas que só precisa saber, "
+            "'ruido' pra ver o que foi ignorado, ou não passe o parâmetro pra ver um resumo dos "
+            "3 baldes de uma vez."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"balde": {"type": "string", "enum": ["acao", "info", "ruido"], "description": "Qual balde ver. Se omitido, mostra resumo dos 3."}},
+        },
+    },
+    {
+        "name": "atualizar_emails",
+        "description": "Força buscar e-mails novos agora, em vez de esperar a atualização automática.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "cadastrar_conta_email",
+        "description": (
+            "Adiciona uma conta de e-mail pra Central de E-mails ler via IMAP. IMPORTANTE: "
+            "NUNCA é a senha normal da conta — é uma 'senha de app' de 16 letras, gerada em "
+            "myaccount.google.com/apppasswords (precisa ativar verificação em 2 etapas "
+            "primeiro). Se o usuário não souber gerar isso, explique o caminho."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "apelido": {"type": "string", "description": "Nome pra identificar essa conta (ex: 'Pessoal', 'Trabalho')."},
+                "cor": {"type": "string", "description": "Cor em hex pra diferenciar visualmente."},
+                "host": {"type": "string", "description": "Servidor IMAP (ex: 'imap.gmail.com')."},
+                "usuario": {"type": "string", "description": "O e-mail completo (ex: 'nome@gmail.com')."},
+                "senha_app": {"type": "string", "description": "A senha de app de 16 letras (NUNCA a senha normal)."},
+            },
+            "required": ["apelido", "host", "usuario", "senha_app"],
+        },
+    },
+    {
+        "name": "listar_contas_email",
+        "description": "Lista as contas de e-mail já configuradas na Central de E-mails.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "ver_noticias",
+        "description": "Mostra as manchetes mais recentes. Se não passar assunto, mostra de todos os assuntos configurados.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"assunto": {"type": "string", "description": "Assunto específico. Se omitido, mostra todos."}},
+        },
+    },
+    {
+        "name": "gerenciar_assuntos_noticia",
+        "description": "Adiciona ou remove um assunto do Radar de Notícias.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "acao": {"type": "string", "enum": ["adicionar", "remover", "listar"]},
+                "assunto": {"type": "string", "description": "Necessário pra 'adicionar'/'remover'."},
+            },
+            "required": ["acao"],
+        },
+    },
+    {
+        "name": "gerar_morning_digest",
+        "description": (
+            "Gera o briefing matinal (Morning Digest) — junta agenda de hoje, e-mails que "
+            "pedem ação, manchetes, clima e uma meta do Second Brain numa fala natural. USE "
+            "quando o usuário disser algo como 'bom dia', 'me dá um resumo do dia', ou pedir "
+            "o digest diretamente."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"cidade_clima": {"type": "string", "description": "Cidade pra buscar o clima (opcional)."}},
+        },
+    },
 ]
 
 
@@ -551,7 +669,108 @@ def execute_tool(name: str, tool_input: dict) -> str:
         except Exception as e:
             return f"Erro ao cadastrar o app: {e}"
 
+    if name == "ver_agenda_hoje":
+        return _format_agenda(calendar_hub.get_today_events())
+
+    if name == "ver_agenda_semana":
+        return _format_agenda(calendar_hub.get_merged_events(days_ahead=7))
+
+    if name == "proximo_compromisso":
+        proximo = calendar_hub.get_next_event()
+        if not proximo:
+            return "Nenhum compromisso encontrado nos próximos 7 dias."
+        return f"{proximo['titulo']} às {proximo['inicio_display']} — daqui a {proximo['countdown']}."
+
+    if name == "cadastrar_agenda":
+        calendar_hub.add_calendar(tool_input["nome"], tool_input.get("cor", "#5fe3f0"), tool_input["ics_url"])
+        return f"Agenda '{tool_input['nome']}' cadastrada. Já entra na próxima consulta de agenda."
+
+    if name == "listar_agendas":
+        agendas = calendar_hub.load_calendars_config()
+        if not agendas:
+            return "Nenhuma agenda configurada ainda."
+        return "Agendas configuradas: " + ", ".join(a["nome"] for a in agendas)
+
+    if name == "ver_emails":
+        resultado = email_hub.get_triaged_emails()
+        balde = tool_input.get("balde")
+        if balde:
+            itens = resultado.get(balde, [])
+            if not itens:
+                return f"Nenhum e-mail no balde '{balde}'."
+            return f"E-mails em '{balde}':\n" + "\n".join(f"- {e['remetente']}: {e['assunto']} ({e['resumo']})" for e in itens)
+        return (
+            f"Resumo: {len(resultado['acao'])} pedindo ação, "
+            f"{len(resultado['info'])} informativo(s), {len(resultado['ruido'])} ruído."
+        )
+
+    if name == "atualizar_emails":
+        resultado = email_hub.get_triaged_emails()
+        return f"Atualizado: {len(resultado['acao'])} pedindo ação, {len(resultado['info'])} informativo(s), {len(resultado['ruido'])} ruído."
+
+    if name == "cadastrar_conta_email":
+        erro = email_hub.add_email_account(
+            tool_input["apelido"], tool_input.get("cor", "#5fe3f0"), tool_input["host"],
+            tool_input["usuario"], tool_input["senha_app"],
+        )
+        if erro:
+            return erro
+        return f"Conta '{tool_input['apelido']}' cadastrada com sucesso."
+
+    if name == "listar_contas_email":
+        contas = email_hub.load_email_accounts()
+        if not contas:
+            return "Nenhuma conta de e-mail configurada ainda."
+        return "Contas configuradas: " + ", ".join(c["apelido"] for c in contas)
+
+    if name == "ver_noticias":
+        assunto = tool_input.get("assunto")
+        if assunto:
+            resultado = news_radar.fetch_headlines(assunto)
+            if "erro" in resultado:
+                return f"Erro ao buscar notícias de '{assunto}': {resultado['erro']}"
+            return f"Manchetes de '{assunto}':\n" + "\n".join(f"- {h['titulo']} ({h['tempo_relativo']})" for h in resultado["manchetes"])
+        todos = news_radar.get_all_headlines()
+        if not todos:
+            return "Nenhum assunto configurado no Radar de Notícias ainda."
+        partes = []
+        for n in todos:
+            if "erro" in n:
+                partes.append(f"{n['assunto']}: erro ao buscar")
+            else:
+                partes.append(f"{n['assunto']}: " + "; ".join(h["titulo"] for h in n["manchetes"][:2]))
+        return "\n".join(partes)
+
+    if name == "gerenciar_assuntos_noticia":
+        acao = tool_input["acao"]
+        if acao == "listar":
+            assuntos = news_radar.load_topics()
+            return "Assuntos configurados: " + ", ".join(assuntos) if assuntos else "Nenhum assunto configurado."
+        if acao == "adicionar":
+            news_radar.add_topic(tool_input["assunto"])
+            return f"Assunto '{tool_input['assunto']}' adicionado ao Radar de Notícias."
+        if acao == "remover":
+            removido = news_radar.remove_topic(tool_input["assunto"])
+            return f"Assunto '{tool_input['assunto']}' removido." if removido else f"Assunto '{tool_input['assunto']}' não estava configurado."
+        return f"Ação desconhecida: {acao}"
+
+    if name == "gerar_morning_digest":
+        resultado = morning_digest.generate_digest(cidade_clima=tool_input.get("cidade_clima"))
+        return resultado["texto"]
+
     return f"Ferramenta desconhecida: {name}"
+
+
+def _format_agenda(eventos: list[dict]) -> str:
+    if not eventos:
+        return "Nenhum evento encontrado."
+    linhas = []
+    for e in eventos:
+        if "erro" in e:
+            linhas.append(f"⚠ {e['erro']}")
+        else:
+            linhas.append(f"{e['inicio_display']} — {e['titulo']} ({e['agenda_nome']})")
+    return "\n".join(linhas)
 
 
 def _list_calendar_events(quantidade: int) -> str:

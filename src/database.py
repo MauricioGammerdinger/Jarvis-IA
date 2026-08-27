@@ -63,6 +63,67 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS email_triage_cache (
+                message_id TEXT PRIMARY KEY,
+                balde TEXT NOT NULL,
+                resumo TEXT,
+                triado_em TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS news_cache (
+                assunto TEXT PRIMARY KEY,
+                headlines_json TEXT NOT NULL,
+                fetched_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+
+
+# ── Cache de triagem de e-mail (por Message-ID, nunca reprocessa) ─────────
+def get_email_triage(message_ids: list[str]) -> dict[str, dict]:
+    if not message_ids:
+        return {}
+    with _connect() as conn:
+        placeholders = ",".join("?" * len(message_ids))
+        rows = conn.execute(
+            f"SELECT message_id, balde, resumo FROM email_triage_cache WHERE message_id IN ({placeholders})",
+            message_ids,
+        ).fetchall()
+        return {r["message_id"]: {"balde": r["balde"], "resumo": r["resumo"]} for r in rows}
+
+
+def save_email_triage(message_id: str, balde: str, resumo: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO email_triage_cache (message_id, balde, resumo, triado_em) VALUES (?, ?, ?, ?)",
+            (message_id, balde, resumo, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+
+
+# ── Cache de notícias (por assunto, respeita intervalo de atualização) ────
+def get_news_cache(assunto: str) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT headlines_json, fetched_at FROM news_cache WHERE assunto = ?", (assunto,)
+        ).fetchone()
+        if not row:
+            return None
+        return {"headlines": json.loads(row["headlines_json"]), "fetched_at": row["fetched_at"]}
+
+
+def save_news_cache(assunto: str, headlines: list[dict]) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO news_cache (assunto, headlines_json, fetched_at) VALUES (?, ?, ?)",
+            (assunto, json.dumps(headlines, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
+        )
         conn.commit()
 
 

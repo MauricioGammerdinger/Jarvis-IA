@@ -3,6 +3,10 @@
 *.env
 credentials.json
 token.json
+email_accounts.json
+calendars_config.json
+last_digest.json
+weather_city_cache.json
 
 # Banco de dados local (dados pessoais)
 *.db

@@ -38,6 +38,10 @@ import embeddings
 import llm_client
 import media
 import tts
+import calendar_hub
+import email_hub
+import morning_digest
+import news_radar
 import tools
 from tools import TOOLS, execute_approved_command, execute_tool
 
@@ -122,6 +126,19 @@ configurado, explique isso ao usuário com clareza em vez de fingir que funciono
 
 Use `controlar_luz` pra ligar/desligar/ajustar o brilho de uma lâmpada inteligente Tapo/Kasa, \
 se configurada. Se a tool avisar que não está configurada, explique isso claramente.
+
+AGENDA: `ver_agenda_hoje`, `ver_agenda_semana`, `proximo_compromisso` mostram eventos de \
+TODAS as agendas configuradas, já mescladas. `cadastrar_agenda` adiciona uma nova (peça o \
+link "endereço secreto em formato iCal" do Google Agenda).
+
+E-MAILS: `ver_emails` (com balde 'acao'/'info'/'ruido', ou sem parâmetro pra resumo geral) e \
+`atualizar_emails`. `cadastrar_conta_email` precisa de uma SENHA DE APP (nunca a senha normal \
+— gerada em myaccount.google.com/apppasswords).
+
+NOTÍCIAS: `ver_noticias` (com ou sem assunto) e `gerenciar_assuntos_noticia` (adicionar/remover/listar).
+
+MORNING DIGEST: `gerar_morning_digest` — use quando o usuário disser "bom dia" ou pedir um \
+resumo do dia. Junta agenda + e-mails de ação + notícias + clima + uma meta.
 
 REGRA OBRIGATÓRIA SOBRE RESULTADOS DE FERRAMENTAS: depois de qualquer chamada de ferramenta, \
 sua resposta final DEVE refletir o que realmente aconteceu — nunca dê uma resposta genérica \
@@ -217,6 +234,120 @@ def remove_app(nome: str):
     if not removed:
         raise HTTPException(status_code=404, detail=f"App '{nome}' não encontrado.")
     return {"ok": True}
+
+
+# ── Central de Agenda ──────────────────────────────────────────────────
+class CalendarConfigRequest(BaseModel):
+    nome: str
+    cor: str = "#5fe3f0"
+    ics_url: str
+
+
+@app.get("/calendar/events", dependencies=[Depends(require_api_key)])
+def get_calendar_events(dias: int = 7):
+    return {"events": calendar_hub.get_merged_events(days_ahead=dias)}
+
+
+@app.get("/calendar/config", dependencies=[Depends(require_api_key)])
+def list_calendars():
+    return {"calendars": calendar_hub.load_calendars_config()}
+
+
+@app.post("/calendar/config", dependencies=[Depends(require_api_key)])
+def add_calendar_config(req: CalendarConfigRequest):
+    if not req.nome.strip() or not req.ics_url.strip():
+        raise HTTPException(status_code=400, detail="Nome e link iCal são obrigatórios.")
+    calendar_hub.add_calendar(req.nome, req.cor, req.ics_url)
+    return {"ok": True}
+
+
+@app.delete("/calendar/config/{nome}", dependencies=[Depends(require_api_key)])
+def remove_calendar_config(nome: str):
+    removed = calendar_hub.remove_calendar(nome)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Agenda '{nome}' não encontrada.")
+    return {"ok": True}
+
+
+# ── Central de E-mails ──────────────────────────────────────────────────
+class EmailAccountRequest(BaseModel):
+    apelido: str
+    cor: str = "#5fe3f0"
+    host: str
+    usuario: str
+    senha_app: str
+
+
+@app.get("/email/triaged", dependencies=[Depends(require_api_key)])
+def get_triaged_emails_endpoint():
+    return email_hub.get_triaged_emails()
+
+
+@app.get("/email/config", dependencies=[Depends(require_api_key)])
+def list_email_accounts():
+    # NUNCA devolve a senha de app de volta pro navegador
+    accounts = email_hub.load_email_accounts()
+    return {"accounts": [{"apelido": a["apelido"], "cor": a["cor"], "host": a["host"], "usuario": a["usuario"]} for a in accounts]}
+
+
+@app.post("/email/config", dependencies=[Depends(require_api_key)])
+def add_email_account_config(req: EmailAccountRequest):
+    if not all([req.apelido.strip(), req.host.strip(), req.usuario.strip(), req.senha_app.strip()]):
+        raise HTTPException(status_code=400, detail="Todos os campos (menos cor) são obrigatórios.")
+    erro = email_hub.add_email_account(req.apelido, req.cor, req.host, req.usuario, req.senha_app)
+    if erro:
+        raise HTTPException(status_code=400, detail=erro)
+    return {"ok": True}
+
+
+@app.delete("/email/config/{apelido}", dependencies=[Depends(require_api_key)])
+def remove_email_account_config(apelido: str):
+    removed = email_hub.remove_email_account(apelido)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Conta '{apelido}' não encontrada.")
+    return {"ok": True}
+
+
+@app.get("/email/allowed-hosts", dependencies=[Depends(require_api_key)])
+def get_allowed_email_hosts():
+    return {"hosts": sorted(email_hub.ALLOWED_IMAP_HOSTS)}
+
+
+# ── Radar de Notícias ────────────────────────────────────────────────────
+class NewsTopicRequest(BaseModel):
+    assunto: str
+
+
+@app.get("/news", dependencies=[Depends(require_api_key)])
+def get_news():
+    return {"news": news_radar.get_all_headlines()}
+
+
+@app.get("/news/topics", dependencies=[Depends(require_api_key)])
+def list_news_topics():
+    return {"topics": news_radar.load_topics()}
+
+
+@app.post("/news/topics", dependencies=[Depends(require_api_key)])
+def add_news_topic(req: NewsTopicRequest):
+    if not req.assunto.strip():
+        raise HTTPException(status_code=400, detail="Assunto é obrigatório.")
+    news_radar.add_topic(req.assunto)
+    return {"ok": True}
+
+
+@app.delete("/news/topics/{assunto}", dependencies=[Depends(require_api_key)])
+def remove_news_topic(assunto: str):
+    removed = news_radar.remove_topic(assunto)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Assunto '{assunto}' não encontrado.")
+    return {"ok": True}
+
+
+# ── Morning Digest ───────────────────────────────────────────────────────
+@app.get("/digest", dependencies=[Depends(require_api_key)])
+def get_morning_digest(cidade: str | None = None):
+    return morning_digest.generate_digest(cidade_clima=cidade)
 
 
 # As 8 áreas do "Second Brain" — memórias nessas categorias entram em TODA
