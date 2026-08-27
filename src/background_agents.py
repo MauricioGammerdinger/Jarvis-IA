@@ -9,6 +9,7 @@ o endpoint `/api/agents` leem daqui, evitando duplicar a "verdade".
 """
 
 import datetime
+import time
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -53,6 +54,14 @@ AGENTS_REGISTRY = {
         "run_path": None,
         "arquivo": "jarvis.db (tabela agent_state, heartbeat)",
     },
+    "commitments_followup": {
+        "nome": "Cobrança de Compromissos",
+        "icon": "⏰",
+        "faz": "Cobra sozinho compromissos com prazo vencido ou próximo (Second Brain ativo).",
+        "every_min": 30,
+        "run_path": "/agents/commitments_followup/run",
+        "arquivo": "jarvis.db (tabela commitments)",
+    },
 }
 
 
@@ -71,6 +80,8 @@ def _agent_is_configured(agent_id: str) -> bool:
             return news_radar.get_narration_hour() is not None
         if agent_id == "hey_jarvis":
             return True
+        if agent_id == "commitments_followup":
+            return True
     except Exception:
         return False
     return True
@@ -80,21 +91,85 @@ def is_agent_off(agent_id: str) -> bool:
     return not _agent_is_configured(agent_id)
 
 
+def _run_with_retry(fn, max_tentativas: int = 2, espera_segundos: float = 2.0):
+    """
+    Autocura: tenta de novo automaticamente antes de desistir — muitos
+    erros de agente de fundo são passageiros (rede instável, servidor
+    IMAP ocupado por um instante), e insistir sozinho evita um alarme
+    falso que o usuário teria que resolver manualmente sem necessidade.
+    Devolve (resultado, tentativas_usadas). Propaga a última exceção se
+    todas as tentativas falharem.
+    """
+    ultimo_erro = None
+    for tentativa in range(1, max_tentativas + 1):
+        try:
+            return fn(), tentativa
+        except Exception as e:
+            ultimo_erro = e
+            if tentativa < max_tentativas:
+                time.sleep(espera_segundos)
+    raise ultimo_erro
+
+
 def run_email_triage_job() -> None:
     import database as db
     import email_hub
 
     if not email_hub.load_email_accounts():
         return
-    try:
+
+    def _tentar_triagem():
         resultado = email_hub.get_triaged_emails()
-        metric = f"{len(resultado['acao'])} ação, {len(resultado['info'])} info, {len(resultado['ruido'])} ruído"
         if resultado.get("erros"):
-            db.record_agent_run("email_triage", "error", resultado["erros"][0].get("erro", "Erro desconhecido"), metric)
-        else:
-            db.record_agent_run("email_triage", "ok", "Triagem concluída", metric)
+            # Transforma em exceção de propósito, pra _run_with_retry conseguir
+            # tentar de novo automaticamente — get_triaged_emails() nunca levanta
+            # exceção sozinho, só devolve o erro dentro do dict.
+            raise RuntimeError(resultado["erros"][0].get("erro", "Erro desconhecido"))
+        return resultado
+
+    try:
+        resultado, tentativas = _run_with_retry(_tentar_triagem)
     except Exception as e:
         db.record_agent_run("email_triage", "error", str(e), "")
+        return
+
+    metric = f"{len(resultado['acao'])} ação, {len(resultado['info'])} info, {len(resultado['ruido'])} ruído"
+
+    # Notificação proativa: só dos e-mails de ação que AINDA não avisamos —
+    # senão, a cada 15min ele repetiria o aviso do mesmo e-mail sem parar.
+    emails_acao = resultado["acao"]
+    ids_acao = [e["id"] for e in emails_acao]
+    novos_ids = db.get_unnotified_action_emails(ids_acao)
+    if novos_ids:
+        novos_emails = [e for e in emails_acao if e["id"] in novos_ids]
+
+        # Ação autônoma segura: prepara um RASCUNHO de resposta pra cada
+        # e-mail urgente novo — nunca envia sozinho, só deixa pronto pra
+        # revisar. Só o primeiro (o mais relevante pra caber na notificação).
+        rascunho_preview = ""
+        try:
+            primeiro = novos_emails[0]
+            rascunho = email_hub.draft_reply(primeiro["remetente"], primeiro["assunto"], primeiro.get("trecho", ""))
+            if rascunho:
+                rascunho_preview = f"\n\n💬 Rascunho pronto: \"{rascunho[:120]}{'...' if len(rascunho) > 120 else ''}\""
+        except Exception:
+            pass  # rascunho é só um extra — nunca pode derrubar a notificação principal por causa disso
+
+        if len(novos_emails) == 1:
+            e = novos_emails[0]
+            titulo = "📬 Novo e-mail pedindo ação"
+            mensagem = f"{e['remetente']}: {e['assunto']}" + (f" — {e['resumo']}" if e.get("resumo") else "") + rascunho_preview
+        else:
+            titulo = f"📬 {len(novos_emails)} novos e-mails pedindo ação"
+            mensagem = "; ".join(f"{e['remetente']}: {e['assunto']}" for e in novos_emails[:3])
+            if len(novos_emails) > 3:
+                mensagem += f" (+{len(novos_emails) - 3} outro(s))"
+            mensagem += rascunho_preview
+        db.create_notification("email", titulo, mensagem)
+        db.mark_emails_notified(novos_ids)
+
+    detail = "Triagem concluída" if tentativas == 1 else f"Triagem concluída (recuperou sozinho na tentativa {tentativas} — autocura)"
+    db.record_agent_run("email_triage", "ok", detail, metric)
 
 
 def run_news_radar_job() -> None:
@@ -103,14 +178,19 @@ def run_news_radar_job() -> None:
 
     if not news_radar.load_topics():
         return
-    try:
+
+    def _tentar_busca():
         resultados = news_radar.get_all_headlines(forcar_atualizacao=True)
         erros = [r for r in resultados if "erro" in r]
-        total = sum(len(r.get("manchetes", [])) for r in resultados)
         if erros:
-            db.record_agent_run("news_radar", "error", erros[0]["erro"], f"{total} manchetes")
-        else:
-            db.record_agent_run("news_radar", "ok", "Atualizado", f"{total} manchetes, {len(resultados)} assunto(s)")
+            raise RuntimeError(erros[0]["erro"])
+        return resultados
+
+    try:
+        resultados, tentativas = _run_with_retry(_tentar_busca)
+        total = sum(len(r.get("manchetes", [])) for r in resultados)
+        detail = "Atualizado" if tentativas == 1 else f"Atualizado (recuperou sozinho na tentativa {tentativas} — autocura)"
+        db.record_agent_run("news_radar", "ok", detail, f"{total} manchetes, {len(resultados)} assunto(s)")
     except Exception as e:
         db.record_agent_run("news_radar", "error", str(e), "")
 
@@ -167,6 +247,34 @@ def run_news_narration_job(forcar: bool = False) -> None:
         db.record_agent_run("news_narration", "error", str(e), "")
 
 
+def run_commitments_followup_job() -> None:
+    """
+    Second Brain ativo: cobra compromissos com prazo vencido ou próximo,
+    sem esperar você perguntar — gera uma notificação proativa (mesmo
+    sistema do 'JARVIS fala primeiro') pra cada um, uma única vez.
+    """
+    import database as db
+
+    pendencias = db.get_pending_commitments_needing_followup(horas_de_antecedencia=24)
+    if not pendencias:
+        db.record_agent_run("commitments_followup", "ok", "Nada pra cobrar agora", "0 pendência(s)")
+        return
+
+    for c in pendencias:
+        prazo_dt = datetime.datetime.fromisoformat(c["prazo"])
+        agora = datetime.datetime.now(datetime.timezone.utc)
+        if prazo_dt.tzinfo is None:
+            prazo_dt = prazo_dt.replace(tzinfo=datetime.timezone.utc)
+        vencido = prazo_dt <= agora
+
+        titulo = "⏰ Compromisso vencido" if vencido else "⏰ Compromisso se aproximando"
+        mensagem = c["texto"]
+        db.create_notification("compromisso", titulo, mensagem)
+        db.mark_commitment_followed_up(c["id"])
+
+    db.record_agent_run("commitments_followup", "ok", "Cobrança enviada", f"{len(pendencias)} pendência(s)")
+
+
 _scheduler: BackgroundScheduler | None = None
 
 
@@ -181,6 +289,7 @@ def start_scheduler() -> BackgroundScheduler:
     _scheduler.add_job(run_news_radar_job, "interval", minutes=30, id="news_radar", next_run_time=now)
     _scheduler.add_job(run_morning_digest_job, "interval", minutes=5, id="morning_digest_check", next_run_time=now)
     _scheduler.add_job(run_news_narration_job, "interval", minutes=5, id="news_narration_check", next_run_time=now)
+    _scheduler.add_job(run_commitments_followup_job, "interval", minutes=30, id="commitments_followup", next_run_time=now)
     _scheduler.start()
     return _scheduler
 

@@ -247,3 +247,26 @@ def get_triaged_emails(quantidade_por_conta: int = 20) -> dict:
         buckets[triagem["balde"]].append(item)
 
     return {"acao": buckets["acao"], "info": buckets["info"], "ruido": buckets["ruido"], "erros": errors}
+
+
+# ── Ação autônoma segura: rascunho de resposta, NUNCA envia sozinho ───────
+def draft_reply(remetente: str, assunto: str, trecho: str) -> str:
+    """
+    Prepara uma sugestão de resposta pro e-mail — o JARVIS já fez o
+    trabalho de pensar/escrever, mas NUNCA envia sozinho (não temos nem
+    capacidade de enviar e-mail, só de ler). Fica pronto pra você revisar,
+    editar e mandar do seu jeito.
+    """
+    import llm_client
+
+    system = (
+        "Você escreve um RASCUNHO curto de resposta a um e-mail, em português, tom profissional "
+        "mas natural. 2-4 frases. Não invente compromissos ou informações que não foram dadas — "
+        "se precisar de mais contexto, deixe isso claro no rascunho (ex: peça mais detalhes)."
+    )
+    prompt = f"De: {remetente}\nAssunto: {assunto}\nTrecho: {trecho[:400]}"
+    try:
+        result = llm_client.chat(messages=[{"role": "user", "content": prompt}], tools=[], system=system)
+        return result["text"].strip()
+    except Exception:
+        return ""

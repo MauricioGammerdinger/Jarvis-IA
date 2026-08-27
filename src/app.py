@@ -160,6 +160,12 @@ TOKENS DE IA: `registrar_uso_ia` grava uma chamada de API com custo calculado au
 plano (Claude Pro/Max, ChatGPT, Cursor); `registrar_uso_assinatura` soma uso (ex: "gastei mais \
 uma mensagem do Claude" → +1); `ver_assinaturas_ia` mostra cota usada/restante/tempo até reset.
 
+COMPROMISSOS (Second Brain ativo): sempre que o usuário disser algo que soe como uma promessa \
+ou compromisso com prazo (ex: "vou terminar isso até sexta", "preciso entregar o relatório \
+amanhã"), chame `registrar_compromisso` SEM esperar ele pedir — é assim que o JARVIS cobra \
+sozinho depois, perto do prazo, sem precisar ser perguntado. `listar_compromissos` e \
+`concluir_compromisso` gerenciam o que já foi guardado.
+
 REGRA OBRIGATÓRIA SOBRE RESULTADOS DE FERRAMENTAS: depois de qualquer chamada de ferramenta, \
 sua resposta final DEVE refletir o que realmente aconteceu — nunca dê uma resposta genérica \
 tipo "Estou pronto, o que você gostaria de fazer?" quando uma ferramenta acabou de rodar. Se \
@@ -588,6 +594,28 @@ def reset_ai_subscription_endpoint(nome: str):
     return {"ok": True, "subscription": sub}
 
 
+# ── Notificações proativas ────────────────────────────────────────────────
+@app.get("/notifications", dependencies=[Depends(require_api_key)])
+def get_notifications(apenas_nao_lidas: bool = True):
+    if apenas_nao_lidas:
+        return {"notifications": db.list_unread_notifications()}
+    return {"notifications": db.list_all_notifications()}
+
+
+@app.post("/notifications/{notification_id}/read", dependencies=[Depends(require_api_key)])
+def mark_notification_read_endpoint(notification_id: int):
+    marked = db.mark_notification_read(notification_id)
+    if not marked:
+        raise HTTPException(status_code=404, detail=f"Notificação #{notification_id} não encontrada.")
+    return {"ok": True}
+
+
+@app.post("/notifications/read-all", dependencies=[Depends(require_api_key)])
+def mark_all_notifications_read_endpoint():
+    quantidade = db.mark_all_notifications_read()
+    return {"ok": True, "marcadas": quantidade}
+
+
 # ── Morning Digest ───────────────────────────────────────────────────────
 @app.get("/digest", dependencies=[Depends(require_api_key)])
 def get_morning_digest(cidade: str | None = None):
@@ -759,6 +787,26 @@ def run_morning_digest_now():
 def run_news_narration_now():
     background_agents.run_news_narration_job(forcar=True)
     return {"ok": True, "snapshot": _compute_agent_snapshot("news_narration")}
+
+
+@app.post("/agents/commitments_followup/run", dependencies=[Depends(require_api_key)])
+def run_commitments_followup_now():
+    background_agents.run_commitments_followup_job()
+    return {"ok": True, "snapshot": _compute_agent_snapshot("commitments_followup")}
+
+
+# Endpoints simples de compromissos, pra uso futuro numa interface dedicada
+@app.get("/commitments", dependencies=[Depends(require_api_key)])
+def list_commitments_endpoint(status: str | None = None):
+    return {"commitments": db.list_commitments(status)}
+
+
+@app.post("/commitments/{commitment_id}/complete", dependencies=[Depends(require_api_key)])
+def complete_commitment_endpoint(commitment_id: int):
+    sucesso = db.complete_commitment(commitment_id)
+    if not sucesso:
+        raise HTTPException(status_code=404, detail=f"Compromisso #{commitment_id} não encontrado.")
+    return {"ok": True}
 
 
 # As 8 áreas do "Second Brain" — memórias nessas categorias entram em TODA

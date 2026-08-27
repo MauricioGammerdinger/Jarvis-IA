@@ -35,10 +35,100 @@ WAKE_THRESHOLD = float(os.environ.get("WAKE_WORD_THRESHOLD", "0.5"))
 RECORD_SECONDS = float(os.environ.get("WAKE_WORD_RECORD_SECONDS", "5"))
 INPUT_DEVICE = os.environ.get("WAKE_WORD_INPUT_DEVICE", "").strip()
 
+# ── Modo de conversa contínua ("Ele fala primeiro" item 2) ──────────────
+# Depois de responder, o JARVIS continua ouvindo por um tempo, SEM precisar
+# de "Hey JARVIS" de novo — só encerra se você ficar em silêncio por muito
+# tempo. Ajustável, mas os padrões abaixo funcionam bem na prática.
+CONVERSATION_MODE_ENABLED = os.environ.get("JARVIS_CONVERSATION_MODE", "1") == "1"
+FOLLOWUP_MAX_WAIT_SECONDS = float(os.environ.get("JARVIS_FOLLOWUP_MAX_WAIT", "8"))  # quanto tempo espera você começar a falar
+TRAILING_SILENCE_SECONDS = float(os.environ.get("JARVIS_TRAILING_SILENCE", "1.1"))  # quanto de silêncio indica que você terminou de falar
+VAD_ENERGY_THRESHOLD = float(os.environ.get("JARVIS_VAD_THRESHOLD", "500"))  # RMS mínimo pra considerar "tem fala" (ajustável por ambiente)
+MAX_UTTERANCE_SECONDS = float(os.environ.get("JARVIS_MAX_UTTERANCE_SECONDS", "20"))  # trava de segurança, nunca grava pra sempre
+
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 1280  # 80ms — tamanho de frame que o openWakeWord espera
 
 HEADERS = {"X-API-Key": JARVIS_API_KEY}
+
+
+def _rms_energy(chunk: np.ndarray) -> float:
+    """
+    Calcula a energia (RMS) de um pedaço de áudio — é isso que diferencia
+    "tem alguém falando" de "silêncio/ruído de fundo baixo". Função pura,
+    testável com áudio sintético, sem precisar de microfone de verdade.
+    """
+    if len(chunk) == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(chunk.astype(np.float64) ** 2)))
+
+
+def _capture_utterance_frames(
+    read_frame_fn,
+    sample_rate: int = SAMPLE_RATE,
+    chunk_seconds: float = CHUNK_SIZE / SAMPLE_RATE,
+    energy_threshold: float = VAD_ENERGY_THRESHOLD,
+    max_wait_seconds: float = FOLLOWUP_MAX_WAIT_SECONDS,
+    trailing_silence_seconds: float = TRAILING_SILENCE_SECONDS,
+    max_utterance_seconds: float = MAX_UTTERANCE_SECONDS,
+):
+    """
+    Máquina de estados da conversa contínua: espera a pessoa começar a
+    falar (energia acima do limiar); se não falar nada dentro de
+    `max_wait_seconds`, devolve None (encerra o modo de conversa). Se
+    começar a falar, acumula os frames até detectar silêncio sustentado
+    por `trailing_silence_seconds` — aí devolve os frames capturados.
+
+    `read_frame_fn` é uma função que devolve o PRÓXIMO frame de áudio (ou
+    None se não tiver nada ainda) — isso é o que permite testar essa
+    lógica inteira com áudio sintético, sem precisar de microfone real.
+    """
+    frames_por_chunk_silencio = max(1, int(trailing_silence_seconds / chunk_seconds))
+    max_chunks_espera = max(1, int(max_wait_seconds / chunk_seconds))
+    max_chunks_total = max(1, int(max_utterance_seconds / chunk_seconds))
+
+    falando = False
+    frames_capturados = []
+    chunks_silencio_seguidos = 0
+    chunks_esperados = 0
+    chunks_totais = 0
+
+    while True:
+        chunk = read_frame_fn()
+        if chunk is None:
+            continue
+
+        energia = _rms_energy(chunk)
+        tem_fala = energia > energy_threshold
+
+        if not falando:
+            chunks_esperados += 1
+            if tem_fala:
+                falando = True
+                frames_capturados.append(chunk)
+            elif chunks_esperados >= max_chunks_espera:
+                return None  # ninguém falou nada — encerra o modo de conversa
+        else:
+            frames_capturados.append(chunk)
+            chunks_totais += 1
+            if tem_fala:
+                chunks_silencio_seguidos = 0
+            else:
+                chunks_silencio_seguidos += 1
+                if chunks_silencio_seguidos >= frames_por_chunk_silencio:
+                    return frames_capturados  # silêncio sustentado = terminou de falar
+            if chunks_totais >= max_chunks_total:
+                return frames_capturados  # trava de segurança, nunca grava pra sempre
+
+
+def _frames_to_wav_bytes(frames: list, sample_rate: int = SAMPLE_RATE) -> bytes:
+    audio = np.concatenate(frames) if frames else np.array([], dtype=np.int16)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(audio.tobytes())
+    return buf.getvalue()
 
 
 def list_input_devices() -> None:
@@ -150,7 +240,14 @@ def speak(text: str) -> None:
         print(f"[jarvis] Falha no TTS ({resp.status_code}): {resp.text}")
 
 
-def handle_wake_word_detected() -> None:
+def _read_chunk_blocking(device) -> np.ndarray:
+    """Grava um único chunk (80ms) de forma síncrona e independente — mesmo padrão do record_command, que já funciona sem depender do stream de escuta da wake word."""
+    recording = sd.rec(CHUNK_SIZE, samplerate=SAMPLE_RATE, channels=1, dtype="int16", device=device)
+    sd.wait()
+    return recording[:, 0]
+
+
+def handle_wake_word_detected(device=None) -> None:
     print("[jarvis] 'Hey JARVIS' detectado! Ouvindo seu comando...")
     beep_ack()
     audio = record_command(RECORD_SECONDS)
@@ -161,8 +258,41 @@ def handle_wake_word_detected() -> None:
         speak(reply)
     except httpx.HTTPStatusError as e:
         print(f"[jarvis] Erro do servidor: {e}")
+        return
     except httpx.RequestError as e:
         print(f"[jarvis] Falha de conexão — o servidor JARVIS está rodando? {e}")
+        return
+
+    if CONVERSATION_MODE_ENABLED:
+        run_conversation_mode(device)
+
+
+def run_conversation_mode(device=None) -> None:
+    """
+    Depois de uma resposta, continua ouvindo SEM precisar de "Hey JARVIS"
+    de novo — só sai do modo de conversa quando a pessoa fica em silêncio
+    por tempo demais (`FOLLOWUP_MAX_WAIT_SECONDS`). Cada chunk é lido de
+    forma independente (`_read_chunk_blocking`), não depende do stream de
+    escuta da wake word estar rodando ao mesmo tempo — importante porque,
+    nesse momento, estamos dentro da própria chamada que a wake word
+    disparou, então o callback dela está pausado.
+    """
+    while True:
+        print("[jarvis] (modo de conversa — pode continuar falando, sem 'Hey JARVIS')")
+        frames = _capture_utterance_frames(lambda: _read_chunk_blocking(device))
+        if frames is None:
+            print("[jarvis] Silêncio — voltando a escutar por 'Hey JARVIS'.")
+            return
+
+        audio_wav = _frames_to_wav_bytes(frames)
+        print("[jarvis] Processando resposta de acompanhamento...")
+        try:
+            reply = send_to_jarvis(audio_wav)
+            print(f"[jarvis] Resposta: {reply}")
+            speak(reply)
+        except (httpx.HTTPStatusError, httpx.RequestError) as e:
+            print(f"[jarvis] Falha ao processar acompanhamento: {e}")
+            return
 
 
 def main():
@@ -203,7 +333,7 @@ def main():
 
         if score > WAKE_THRESHOLD:
             cooldown_until = time.time() + RECORD_SECONDS + 3  # bloqueia novas detecções durante o processamento
-            handle_wake_word_detected()
+            handle_wake_word_detected(device)
 
     # Grava "sinal de vida" no banco periodicamente — é isso que o painel
     # de agentes lê pra saber que esse processo (separado do servidor

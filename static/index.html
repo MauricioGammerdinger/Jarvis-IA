@@ -378,6 +378,21 @@
   .agents-run-btn:hover { background: var(--cyan); color: #061014; }
   .agents-run-btn:disabled { opacity: .5; cursor: not-allowed; }
 
+  /* ── Notificações proativas — "o JARVIS fala primeiro" ──────────────── */
+  .jarvis-toast-wrap { position: fixed; top: 16px; right: 16px; z-index: 2000; display: flex; flex-direction: column; gap: 8px; max-width: 340px; }
+  .jarvis-toast {
+    background: var(--card-glass, var(--panel-2)); backdrop-filter: blur(14px);
+    border: 1px solid var(--border-strong, var(--cyan)); border-radius: var(--dl-radius, 12px);
+    padding: 12px 14px; box-shadow: 0 8px 26px rgba(0,0,0,.4), 0 0 20px rgba(95,227,240,.15);
+    animation: jarvis-toast-in .3s var(--dl-ease, ease) both; cursor: pointer;
+  }
+  .jarvis-toast-title { font-weight: 700; font-size: 13px; color: var(--cyan); display: flex; align-items: center; gap: 6px; }
+  .jarvis-toast-msg { font-size: 12.5px; color: var(--text); margin-top: 4px; line-height: 1.4; }
+  .jarvis-toast.leaving { animation: jarvis-toast-out .25s ease forwards; }
+  @keyframes jarvis-toast-in { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes jarvis-toast-out { to { opacity: 0; transform: translateX(30px); } }
+  @media (prefers-reduced-motion: reduce) { .jarvis-toast { animation: none !important; } }
+
   .agents-list { display: flex; flex-direction: column; gap: 4px; }
   .agents-list-item {
     display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px;
@@ -794,6 +809,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 </head>
 <body>
+
+<div class="jarvis-toast-wrap" id="jarvisToastWrap"></div>
 
 <div class="app-shell">
   <aside class="sidebar" id="sidebar">
@@ -3174,6 +3191,53 @@
     }
   }
   init();
+
+  // ── Notificações proativas — "o JARVIS fala primeiro" ─────────────────
+  // Roda em QUALQUER aba, não só quando o painel de agentes está aberto —
+  // é isso que faz a diferença entre "avisa sozinho" e "só se eu for olhar".
+  if ("Notification" in window && Notification.permission === "default") {
+    // Só pede permissão depois de alguma interação, pra não assustar no primeiro carregamento
+    document.addEventListener("click", function pedirPermissaoUmaVez() {
+      Notification.requestPermission();
+      document.removeEventListener("click", pedirPermissaoUmaVez);
+    }, { once: true });
+  }
+
+  function showJarvisToast(notif) {
+    const wrap = $("jarvisToastWrap");
+    const toast = document.createElement("div");
+    toast.className = "jarvis-toast";
+    toast.innerHTML = `<div class="jarvis-toast-title">${escapeHtml(notif.titulo)}</div><div class="jarvis-toast-msg">${escapeHtml(notif.mensagem)}</div>`;
+    toast.addEventListener("click", () => {
+      toast.classList.add("leaving");
+      setTimeout(() => toast.remove(), 250);
+    });
+    wrap.appendChild(toast);
+    setTimeout(() => {
+      if (toast.parentNode) { toast.classList.add("leaving"); setTimeout(() => toast.remove(), 250); }
+    }, 9000);
+
+    if ("Notification" in window && Notification.permission === "granted" && document.visibilityState !== "visible") {
+      try { new Notification(notif.titulo, { body: notif.mensagem, icon: "" }); } catch (e) { /* opcional, ignora falha */ }
+    }
+    if (ttsEnabled) speakNow(`${notif.titulo}. ${notif.mensagem}`);
+  }
+
+  async function checkProactiveNotifications() {
+    if (!apiKey) return;
+    try {
+      const res = await fetch(serverUrl + "/notifications", { headers: { "X-API-Key": apiKey } });
+      const data = await res.json();
+      const novas = data.notifications || [];
+      for (const notif of novas) {
+        showJarvisToast(notif);
+        await fetch(`${serverUrl}/notifications/${notif.id}/read`, { method: "POST", headers: { "X-API-Key": apiKey } });
+      }
+    } catch (e) { /* falha silenciosa — tenta de novo no próximo ciclo */ }
+  }
+
+  checkProactiveNotifications();
+  setInterval(checkProactiveNotifications, 25000);
 })();
 </script>
 

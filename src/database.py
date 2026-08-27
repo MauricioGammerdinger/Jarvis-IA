@@ -9,7 +9,7 @@ externo pra um app 100% local.
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent.parent / "jarvis.db"  # fica na raiz do projeto, não em src/ — não mexe onde as memórias já existentes estão salvas
@@ -129,6 +129,35 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tipo TEXT NOT NULL,
+                titulo TEXT NOT NULL,
+                mensagem TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                lida INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS commitments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                texto TEXT NOT NULL,
+                prazo TEXT,
+                status TEXT NOT NULL DEFAULT 'pendente',
+                criado_em TEXT NOT NULL,
+                cobrado INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        # Coluna de controle: já criamos uma notificação pra esse e-mail?
+        # Evita avisar 2x sobre o mesmo e-mail em rodadas seguintes da triagem.
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(email_triage_cache)").fetchall()]
+        if "notificado" not in cols:
+            conn.execute("ALTER TABLE email_triage_cache ADD COLUMN notificado INTEGER NOT NULL DEFAULT 0")
         conn.commit()
 
 
@@ -293,6 +322,120 @@ def set_subscription_usage(nome: str, novo_ancora: str) -> bool:
         cursor = conn.execute("UPDATE ai_subscriptions SET usado = 0, reset_ancora = ? WHERE nome = ?", (novo_ancora, nome))
         conn.commit()
         return cursor.rowcount > 0
+
+
+# ── Notificações proativas — "o JARVIS fala primeiro" ──────────────────
+def create_notification(tipo: str, titulo: str, mensagem: str) -> int:
+    with _connect() as conn:
+        cursor = conn.execute(
+            "INSERT INTO notifications (tipo, titulo, mensagem, created_at, lida) VALUES (?, ?, ?, ?, 0)",
+            (tipo, titulo, mensagem, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def list_unread_notifications() -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM notifications WHERE lida = 0 ORDER BY id ASC").fetchall()
+        return [dict(r) for r in rows]
+
+
+def list_all_notifications(limite: int = 50) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM notifications ORDER BY id DESC LIMIT ?", (limite,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def mark_notification_read(notification_id: int) -> bool:
+    with _connect() as conn:
+        cursor = conn.execute("UPDATE notifications SET lida = 1 WHERE id = ?", (notification_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def mark_all_notifications_read() -> int:
+    with _connect() as conn:
+        cursor = conn.execute("UPDATE notifications SET lida = 1 WHERE lida = 0")
+        conn.commit()
+        return cursor.rowcount
+
+
+# ── Controle de "já avisei sobre esse e-mail?" ──────────────────────────
+def get_unnotified_action_emails(message_ids: list[str]) -> list[str]:
+    """De uma lista de Message-IDs (todos já classificados como 'ação'), devolve só os que AINDA não geraram notificação."""
+    if not message_ids:
+        return []
+    with _connect() as conn:
+        placeholders = ",".join("?" * len(message_ids))
+        rows = conn.execute(
+            f"SELECT message_id FROM email_triage_cache WHERE message_id IN ({placeholders}) AND notificado = 0",
+            message_ids,
+        ).fetchall()
+        return [r["message_id"] for r in rows]
+
+
+def mark_emails_notified(message_ids: list[str]) -> None:
+    if not message_ids:
+        return
+    with _connect() as conn:
+        placeholders = ",".join("?" * len(message_ids))
+        conn.execute(f"UPDATE email_triage_cache SET notificado = 1 WHERE message_id IN ({placeholders})", message_ids)
+        conn.commit()
+
+
+# ── Compromissos — "Second Brain ativo", cobra pendências sozinho ────────
+def add_commitment(texto: str, prazo: str | None = None) -> int:
+    with _connect() as conn:
+        cursor = conn.execute(
+            "INSERT INTO commitments (texto, prazo, status, criado_em, cobrado) VALUES (?, ?, 'pendente', ?, 0)",
+            (texto, prazo, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def list_commitments(status: str | None = None) -> list[dict]:
+    with _connect() as conn:
+        if status:
+            rows = conn.execute("SELECT * FROM commitments WHERE status = ? ORDER BY prazo IS NULL, prazo ASC", (status,)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM commitments ORDER BY prazo IS NULL, prazo ASC").fetchall()
+        return [dict(r) for r in rows]
+
+
+def complete_commitment(commitment_id: int) -> bool:
+    with _connect() as conn:
+        cursor = conn.execute("UPDATE commitments SET status = 'concluido' WHERE id = ?", (commitment_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_pending_commitments_needing_followup(horas_de_antecedencia: float = 24) -> list[dict]:
+    """Pendências com prazo VENCIDO ou PRÓXIMO (dentro de `horas_de_antecedencia`), ainda não cobradas."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM commitments WHERE status = 'pendente' AND cobrado = 0 AND prazo IS NOT NULL"
+        ).fetchall()
+    resultado = []
+    limite = datetime.now(timezone.utc) + timedelta(hours=horas_de_antecedencia)
+    for r in rows:
+        c = dict(r)
+        try:
+            prazo_dt = datetime.fromisoformat(c["prazo"])
+            if prazo_dt.tzinfo is None:
+                prazo_dt = prazo_dt.replace(tzinfo=timezone.utc)
+            if prazo_dt <= limite:  # vencido OU dentro da janela de antecedência
+                resultado.append(c)
+        except ValueError:
+            continue  # prazo mal formatado — ignora em vez de quebrar
+    return resultado
+
+
+def mark_commitment_followed_up(commitment_id: int) -> None:
+    with _connect() as conn:
+        conn.execute("UPDATE commitments SET cobrado = 1 WHERE id = ?", (commitment_id,))
+        conn.commit()
 
 
 # ── Memórias ─────────────────────────────────────────────────────────────

@@ -740,6 +740,40 @@ TOOLS = [
         "description": "Mostra o estado de todas as assinaturas: cota usada, restante, contagem regressiva até o reset, e se a projeção indica que vai estourar antes do reset.",
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "registrar_compromisso",
+        "description": (
+            "Guarda um compromisso/promessa que o usuário assumiu na conversa (ex: 'vou terminar "
+            "X até sexta'). USE sempre que notar o usuário se comprometendo com algo, mesmo sem "
+            "ele pedir explicitamente pra anotar — o JARVIS cobra isso sozinho depois, perto do "
+            "prazo, sem precisar ser perguntado."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "texto": {"type": "string", "description": "O compromisso, resumido (ex: 'Terminar o relatório do cliente X')."},
+                "prazo": {"type": "string", "description": "Data/hora ISO do prazo, se houver (ex: '2026-08-29T18:00:00'). Omitir se não tiver prazo definido."},
+            },
+            "required": ["texto"],
+        },
+    },
+    {
+        "name": "listar_compromissos",
+        "description": "Lista os compromissos guardados, com prazo e status.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"status": {"type": "string", "enum": ["pendente", "concluido"], "description": "Filtra por status. Omitir pra ver todos."}},
+        },
+    },
+    {
+        "name": "concluir_compromisso",
+        "description": "Marca um compromisso como concluído.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"type": "integer", "description": "ID do compromisso (veja em listar_compromissos)."}},
+            "required": ["id"],
+        },
+    },
 ]
 
 
@@ -1066,6 +1100,25 @@ def execute_tool(name: str, tool_input: dict) -> str:
                 f"({s['usado_pct']:.0f}%), reseta em {ai_tokens.format_countdown(s['segundos_ate_reset'])}.{aviso}"
             )
         return "\n".join(partes)
+
+    if name == "registrar_compromisso":
+        commitment_id = db.add_commitment(tool_input["texto"], tool_input.get("prazo"))
+        prazo_txt = f" (prazo: {tool_input['prazo']})" if tool_input.get("prazo") else " (sem prazo definido)"
+        return f"Compromisso #{commitment_id} guardado: '{tool_input['texto']}'{prazo_txt}. Vou cobrar isso sozinho perto do prazo."
+
+    if name == "listar_compromissos":
+        compromissos = db.list_commitments(tool_input.get("status"))
+        if not compromissos:
+            return "Nenhum compromisso encontrado."
+        partes = []
+        for c in compromissos:
+            prazo_txt = f" — prazo: {c['prazo']}" if c["prazo"] else ""
+            partes.append(f"#{c['id']} [{c['status']}] {c['texto']}{prazo_txt}")
+        return "\n".join(partes)
+
+    if name == "concluir_compromisso":
+        sucesso = db.complete_commitment(tool_input["id"])
+        return f"Compromisso #{tool_input['id']} marcado como concluído!" if sucesso else f"Compromisso #{tool_input['id']} não encontrado."
 
     return f"Ferramenta desconhecida: {name}"
 

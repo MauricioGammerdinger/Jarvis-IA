@@ -249,6 +249,7 @@ na raiz do projeto, não dentro de `src/`.
 | `cadastrar_projeto_codigo` / `status_git_projeto` | Projetos aparecem no Painel de Agentes com status do git |
 | `registrar_uso_ia` / `ver_custo_ia` | Gasto de API de IA, custo calculado, orçamento |
 | `cadastrar_assinatura_ia` / `registrar_uso_assinatura` / `ver_assinaturas_ia` | Cota de assinaturas (Claude/ChatGPT/Cursor) |
+| `registrar_compromisso` / `listar_compromissos` / `concluir_compromisso` | Second Brain ativo — cobra pendências sozinho |
 | `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
@@ -1172,6 +1173,73 @@ mesmo estando com % baixo ainda, se o ritmo de uso for alto.
   do ciclo, e uma assinatura recém-criada tem "tempo decorrido" perto de
   zero, inflando a taxa artificialmente. Corrigido exigindo pelo menos
   15 minutos de dados antes de confiar na projeção.
+
+## "À la Tony Stark" — 4 mudanças de comportamento, não só de recurso
+
+Depois de construir bastante funcionalidade, veio a pergunta certa: o que
+falta pro JARVIS **parecer** com o do filme, não só ter feature em cima
+de feature? A resposta não foi "mais uma tool" — foram 4 jeitos novos
+dele **se comportar**.
+
+### 1. Ele fala primeiro (notificações proativas)
+Antes, tudo no JARVIS era "você pergunta → ele responde". Agora, quando
+um agente de fundo encontra algo que importa (um e-mail novo pedindo
+ação, por exemplo), aparece um **toast no canto da tela sozinho**, sem
+você precisar abrir nada — com fala opcional (TTS) e notificação nativa
+do navegador se a aba não estiver em foco.
+- Tabela `notifications` no banco + endpoints (`/notifications`)
+- **Testado**: o toast aparece de verdade estando você no painel de
+  chat, sem eu chamar nada manualmente — só a checagem automática que já
+  roda sozinha no carregamento da página
+
+### 2. Conversa contínua (sem repetir "Hey JARVIS")
+Depois de responder, o listener de voz continua ouvindo por um tempo,
+detectando quando você começou e parou de falar (por energia do áudio —
+VAD), sem precisar da palavra de ativação de novo. Só volta ao modo de
+espera se você ficar em silêncio.
+- Variáveis no `.env`: `JARVIS_CONVERSATION_MODE=1` (liga/desliga),
+  `JARVIS_FOLLOWUP_MAX_WAIT`, `JARVIS_TRAILING_SILENCE`, `JARVIS_VAD_THRESHOLD`
+- **Bug de arquitetura que encontrei e evitei antes de chegar no seu
+  PC**: minha primeira versão reaproveitava o callback de escuta da wake
+  word pra alimentar uma fila — só que esse callback fica bloqueado
+  durante a conversa inteira, criando um deadlock silencioso (a fila
+  nunca recebia áudio novo). Corrigi com leitura direta e independente
+  por pedaço de áudio, no mesmo padrão que já funcionava pra gravar o
+  comando inicial
+- **Testado com áudio sintético** (sem microfone real, como o arquivo já
+  avisa): silêncio total encerra sozinho, fala-e-pausa é reconhecido
+  como "terminou de falar", trava de segurança contra fala sem pausa
+  nenhuma, e o cenário principal — 2 turnos de conversa seguidos sem
+  repetir a wake word
+
+### 3. Second Brain ativo — cobra pendências sozinho
+Quando você assume um compromisso na conversa ("vou terminar isso até
+sexta"), o JARVIS guarda isso sozinho (sem precisar pedir) e **cobra
+perto do prazo**, sem você perguntar — reaproveitando o sistema de
+notificação do item 1.
+```
+"Hey JARVIS, vou entregar a proposta pro cliente até amanhã"  (ele guarda sozinho)
+"Hey JARVIS, quais compromissos eu tenho pendentes?"
+```
+- Tabela `commitments`, agente novo no Painel de Agentes ("Cobrança de Compromissos")
+- **Bug real que encontrei e corrigi**: minha primeira versão cobrava
+  **qualquer** compromisso com prazo, mesmo daqui 30 dias — corrigi pra
+  só cobrar vencido ou dentro de 24h, testando os dois casos lado a lado
+
+### 4. Ações autônomas — só as seguras
+"Autônomo" aqui **não** significa "sem controle nenhum" — continua
+valendo a regra do projeto inteiro: nada irreversível acontece sem você
+saber. O que ficou autônomo:
+- **Autocura**: se um job de fundo falhar por erro passageiro (rede
+  instável, por exemplo), ele **tenta de novo sozinho** antes de te
+  incomodar com um alarme falso
+- **Rascunho de resposta**: quando chega e-mail urgente, o JARVIS já
+  **prepara uma sugestão de resposta** (nunca envia — só lê e-mail, não
+  manda) e inclui na própria notificação, pronta pra você revisar
+- **Testado**: autocura recuperando de verdade de uma falha simulada na
+  primeira tentativa, e confirmei que uma falha ao gerar o rascunho
+  nunca derruba a notificação principal (é um extra, não pode quebrar o
+  essencial)
 
 ## Fine-tuning — dando personalidade própria ao modelo
 
