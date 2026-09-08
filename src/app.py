@@ -969,6 +969,7 @@ def _run_agent_turn(session_id: str, user_text: str) -> dict:
     # 20, não 6: tarefas com ver_tela + clicar_na_tela consomem vários passos
     # (cada clique costuma exigir um ver_tela antes E depois pra confirmar).
     MAX_TOOL_ITERATIONS = 20
+    ferramentas_chamadas = []
 
     try:
         for i in range(MAX_TOOL_ITERATIONS):
@@ -985,10 +986,15 @@ def _run_agent_turn(session_id: str, user_text: str) -> dict:
                 db.append_message(session_id, "user", user_text)
                 db.append_message(session_id, "assistant", result["text"])
                 logger.info(f"[chat] session={session_id} | concluído, resposta com {len(result['text'])} caracteres")
-                return {"reply": result["text"], "session_id": session_id}
+                return {
+                    "reply": result["text"],
+                    "session_id": session_id,
+                    "iniciar_ditado": "iniciar_ditado_longo" in ferramentas_chamadas,
+                }
 
             history.append(result["raw_message"])
             for call in result["tool_calls"]:
+                ferramentas_chamadas.append(call["name"])
                 t_tool = time.monotonic()
                 _execute_tool_call(call, history)
                 logger.info(

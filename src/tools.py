@@ -27,6 +27,8 @@ import calendar_hub
 import code_editor
 import git_projects
 import machine_sync
+import pdf_reader
+import web_search
 import database as db
 import email_hub
 import embeddings
@@ -797,6 +799,41 @@ TOOLS = [
         "description": "Sincroniza Second Brain e compromissos com as outras máquinas configuradas, agora mesmo (sem esperar o ciclo automático).",
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "pesquisar_web",
+        "description": (
+            "Pesquisa na internet — use quando a pergunta precisar de informação atual/recente que "
+            "você não tem (notícias de agora, preço, versão mais nova de algo, etc). Grátis, sem "
+            "chave de API."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "O que pesquisar."},
+                "max_resultados": {"type": "integer", "description": "Quantos resultados (padrão 5)."},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "ler_pdf",
+        "description": "Lê e extrai o texto de um arquivo PDF, pra você poder discutir o conteúdo.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"caminho": {"type": "string", "description": "Caminho completo do arquivo PDF."}},
+            "required": ["caminho"],
+        },
+    },
+    {
+        "name": "iniciar_ditado_longo",
+        "description": (
+            "Chame isso quando o usuário disser que quer DITAR um texto longo por voz (ex: 'quero "
+            "ditar um texto', 'modo ditado'), em vez de dar um comando curto. Sinaliza pro listener "
+            "de voz entrar num modo que grava por mais tempo (até 5min), sem cortar por causa de "
+            "pausas naturais da fala."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -1169,6 +1206,16 @@ def execute_tool(name: str, tool_input: dict) -> str:
             f"{imp['memories_novas']} memória(s) nova(s), {imp['commitments_novos']} compromisso(s) novo(s), "
             f"{imp['commitments_atualizados']} atualizado(s)."
         )
+
+    if name == "pesquisar_web":
+        resultados = web_search.search_web(tool_input["query"], tool_input.get("max_resultados", 5))
+        return web_search.format_search_results(tool_input["query"], resultados)
+
+    if name == "ler_pdf":
+        return pdf_reader.read_pdf(tool_input["caminho"])
+
+    if name == "iniciar_ditado_longo":
+        return "Pode ditar seu texto — vou continuar ouvindo por até 5 minutos, sem cortar por causa de pausa."
 
     return f"Ferramenta desconhecida: {name}"
 

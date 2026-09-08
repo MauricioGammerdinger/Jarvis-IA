@@ -45,6 +45,13 @@ TRAILING_SILENCE_SECONDS = float(os.environ.get("JARVIS_TRAILING_SILENCE", "1.1"
 VAD_ENERGY_THRESHOLD = float(os.environ.get("JARVIS_VAD_THRESHOLD", "500"))  # RMS mínimo pra considerar "tem fala" (ajustável por ambiente)
 MAX_UTTERANCE_SECONDS = float(os.environ.get("JARVIS_MAX_UTTERANCE_SECONDS", "20"))  # trava de segurança, nunca grava pra sempre
 
+# Ditação longa: tolera pausas maiores (fala natural tem mais pausa que
+# comando curto) e permite gravação bem mais longa — reaproveita a MESMA
+# máquina de estados do modo de conversa, só com parâmetros diferentes.
+DICTATION_MAX_WAIT_SECONDS = float(os.environ.get("JARVIS_DICTATION_MAX_WAIT", "10"))
+DICTATION_TRAILING_SILENCE_SECONDS = float(os.environ.get("JARVIS_DICTATION_TRAILING_SILENCE", "2.5"))
+DICTATION_MAX_SECONDS = float(os.environ.get("JARVIS_DICTATION_MAX_SECONDS", "300"))
+
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 1280  # 80ms — tamanho de frame que o openWakeWord espera
 
@@ -222,13 +229,13 @@ def record_command(seconds: float) -> bytes:
     return buf.getvalue()
 
 
-def send_to_jarvis(audio_wav: bytes) -> str:
-    """Manda o áudio gravado pro servidor JARVIS e devolve o texto da resposta."""
+def send_to_jarvis(audio_wav: bytes) -> dict:
+    """Manda o áudio gravado pro servidor JARVIS e devolve a resposta completa (texto + sinalizadores como 'iniciar_ditado')."""
     files = {"audio": ("comando.wav", audio_wav, "audio/wav")}
     data = {"session_id": "voz", "message": ""}
     resp = httpx.post(f"{JARVIS_API_URL}/chat/media", headers=HEADERS, data=data, files=files, timeout=60)
     resp.raise_for_status()
-    return resp.json()["reply"]
+    return resp.json()
 
 
 def speak(text: str) -> None:
@@ -253,7 +260,8 @@ def handle_wake_word_detected(device=None) -> None:
     audio = record_command(RECORD_SECONDS)
     print("[jarvis] Processando...")
     try:
-        reply = send_to_jarvis(audio)
+        resposta = send_to_jarvis(audio)
+        reply = resposta["reply"]
         print(f"[jarvis] Resposta: {reply}")
         speak(reply)
     except httpx.HTTPStatusError as e:
@@ -263,7 +271,9 @@ def handle_wake_word_detected(device=None) -> None:
         print(f"[jarvis] Falha de conexão — o servidor JARVIS está rodando? {e}")
         return
 
-    if CONVERSATION_MODE_ENABLED:
+    if resposta.get("iniciar_ditado"):
+        run_dictation_mode(device)
+    elif CONVERSATION_MODE_ENABLED:
         run_conversation_mode(device)
 
 
@@ -287,12 +297,48 @@ def run_conversation_mode(device=None) -> None:
         audio_wav = _frames_to_wav_bytes(frames)
         print("[jarvis] Processando resposta de acompanhamento...")
         try:
-            reply = send_to_jarvis(audio_wav)
+            resposta = send_to_jarvis(audio_wav)
+            reply = resposta["reply"]
             print(f"[jarvis] Resposta: {reply}")
             speak(reply)
         except (httpx.HTTPStatusError, httpx.RequestError) as e:
             print(f"[jarvis] Falha ao processar acompanhamento: {e}")
             return
+
+        if resposta.get("iniciar_ditado"):
+            run_dictation_mode(device)
+            return
+
+
+def run_dictation_mode(device=None) -> None:
+    """
+    Ditado longo: tolera pausas maiores (fala natural tem mais pausa que
+    comando curto) e grava por bem mais tempo (até `DICTATION_MAX_SECONDS`).
+    Reaproveita a MESMA máquina de estados do modo de conversa
+    (`_capture_utterance_frames`), só com parâmetros diferentes — é
+    exatamente o tipo de reaproveitamento que já foi testado a fundo ali.
+    """
+    print("[jarvis] (modo de ditado — pode falar um texto longo, aviso quando parar de ouvir)")
+    frames = _capture_utterance_frames(
+        lambda: _read_chunk_blocking(device),
+        max_wait_seconds=DICTATION_MAX_WAIT_SECONDS,
+        trailing_silence_seconds=DICTATION_TRAILING_SILENCE_SECONDS,
+        max_utterance_seconds=DICTATION_MAX_SECONDS,
+    )
+    if frames is None:
+        print("[jarvis] Não ouvi nada — saindo do modo de ditado.")
+        speak("Não ouvi nada, saindo do modo de ditado.")
+        return
+
+    audio_wav = _frames_to_wav_bytes(frames)
+    print("[jarvis] Processando o texto ditado...")
+    try:
+        resposta = send_to_jarvis(audio_wav)
+        reply = resposta["reply"]
+        print(f"[jarvis] Resposta: {reply}")
+        speak(reply)
+    except (httpx.HTTPStatusError, httpx.RequestError) as e:
+        print(f"[jarvis] Falha ao processar o ditado: {e}")
 
 
 def main():

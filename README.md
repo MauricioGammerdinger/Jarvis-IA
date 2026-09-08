@@ -180,6 +180,8 @@ jarvis-ia/
 │   ├── git_projects.py                                # Status do git dos projetos cadastrados
 │   ├── health_check.py                                 # Checagem de saúde (Ollama, modelo, microfone)
 │   ├── machine_sync.py                                 # Sincronização entre PCs (pasta compartilhada)
+│   ├── web_search.py                                    # Pesquisa na web (DuckDuckGo, grátis)
+│   ├── pdf_reader.py                                    # Leitura/extração de texto de PDF
 │   ├── ai_tokens.py                                    # Dashboard de Tokens de IA (custo + cota)
 │   ├── wake_word_listener.py                   # "Hey JARVIS" — ativação por voz
 │   └── tray_app.py                               # Ícone na bandeja do sistema
@@ -254,6 +256,9 @@ na raiz do projeto, não dentro de `src/`.
 | `registrar_compromisso` / `listar_compromissos` / `concluir_compromisso` | Second Brain ativo — cobra pendências sozinho |
 | `ver_trilha_auditoria` / `desfazer_edicao` | Tudo que o JARVIS fez sozinho, com desfazer real |
 | `sincronizar_maquinas` | Sincroniza Second Brain/compromissos com outras máquinas agora |
+| `pesquisar_web` | Pesquisa na internet (DuckDuckGo, grátis, sem chave) |
+| `ler_pdf` | Extrai texto de um PDF pra discutir o conteúdo |
+| `iniciar_ditado_longo` | Ativa o modo de gravação longa (até 5min) por voz |
 | `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
@@ -1367,6 +1372,44 @@ existir) ganhavam esse identificador, no backfill da migração. Qualquer
 coisa criada depois ficaria invisível pra sincronização pra sempre, sem
 avisar nada. Corrigi na raiz (as duas funções agora sempre geram o
 identificador na criação) e retestei o ciclo completo pra confirmar.
+
+## Capacidades novas — pesquisa web, PDF, ditado longo
+
+### Pesquisa na web
+O JARVIS é 100% local (sem internet pra responder), então não sabe de
+nada que aconteceu depois do treinamento do modelo. Agora, quando
+precisar de informação atual, pode pesquisar — via DuckDuckGo, **sem
+chave de API, sem custo**, mesma filosofia do resto do projeto.
+```
+"Hey JARVIS, pesquisa quem ganhou o jogo de ontem"
+```
+**Achado testando**: a biblioteca `ddgs` usa um proxy interno
+(`_DDGSProxy`) — mockar `ddgs.DDGS.text` direto não funciona pra testar,
+precisa mockar a classe real (`ddgs.ddgs.DDGS.text`). Só importa pra
+quem for mexer nos testes depois; o código de produção usa a biblioteca
+normalmente e funciona sem essa pegadinha.
+
+### Ler PDF
+```
+"Hey JARVIS, lê esse PDF e me resume: C:\...\documento.pdf"
+```
+Extrai o texto (não funciona em PDF só-imagem/escaneado — nesse caso
+avisa claramente em vez de devolver vazio sem explicação). **Testado**
+com um PDF real de 2 páginas gerado na hora, confirmando texto e
+metadados extraídos corretamente, e os 2 casos de erro (arquivo não
+existe, arquivo não é PDF).
+
+### Ditado longo
+Pra ditar um texto mais longo que um comando de voz normal, sem cortar
+por causa de pausa natural da fala:
+```
+"Hey JARVIS, quero ditar um texto"
+```
+Reaproveita a mesma detecção de fala por energia (VAD) do modo de
+conversa contínua, só com tolerância de pausa maior e limite de gravação
+bem mais alto (até 5 minutos, configurável via `JARVIS_DICTATION_MAX_SECONDS`
+no `.env`). **Testado** o fluxo completo: comando inicial → servidor
+sinaliza início do modo ditado → grava o texto longo → processa.
 
 ## Fine-tuning — dando personalidade própria ao modelo
 
