@@ -26,6 +26,7 @@ import ai_tokens
 import calendar_hub
 import code_editor
 import git_projects
+import machine_sync
 import database as db
 import email_hub
 import embeddings
@@ -791,6 +792,11 @@ TOOLS = [
             "required": ["id"],
         },
     },
+    {
+        "name": "sincronizar_maquinas",
+        "description": "Sincroniza Second Brain e compromissos com as outras máquinas configuradas, agora mesmo (sem esperar o ciclo automático).",
+        "input_schema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -1150,6 +1156,19 @@ def execute_tool(name: str, tool_input: dict) -> str:
 
     if name == "desfazer_edicao":
         return code_editor.undo_last_edit(tool_input["id"])
+
+    if name == "sincronizar_maquinas":
+        if not machine_sync.is_sync_enabled():
+            return "Sincronização entre máquinas não está configurada — defina JARVIS_SYNC_FOLDER no .env, apontando pra uma pasta compartilhada (ex: dentro do OneDrive)."
+        resultado = machine_sync.sync_now()
+        imp = resultado["import"]
+        if not imp["ok"]:
+            return f"Falha ao sincronizar: {imp.get('motivo', 'erro desconhecido')}"
+        return (
+            f"Sincronizado com {len(imp['maquinas'])} máquina(s). "
+            f"{imp['memories_novas']} memória(s) nova(s), {imp['commitments_novos']} compromisso(s) novo(s), "
+            f"{imp['commitments_atualizados']} atualizado(s)."
+        )
 
     return f"Ferramenta desconhecida: {name}"
 

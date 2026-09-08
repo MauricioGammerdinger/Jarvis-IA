@@ -171,6 +171,10 @@ arquivo, notificações proativas). `desfazer_edicao` restaura um arquivo pro es
 uma edição específica, usando o backup automático — use quando o usuário pedir pra desfazer ou \
 voltar uma mudança.
 
+SINCRONIZAÇÃO ENTRE PCS: `sincronizar_maquinas` força uma sincronização agora (Second Brain + \
+compromissos com outras máquinas do usuário). Se não estiver configurado, explique que precisa \
+definir JARVIS_SYNC_FOLDER no .env.
+
 REGRA OBRIGATÓRIA SOBRE RESULTADOS DE FERRAMENTAS: depois de qualquer chamada de ferramenta, \
 sua resposta final DEVE refletir o que realmente aconteceu — nunca dê uma resposta genérica \
 tipo "Estou pronto, o que você gostaria de fazer?" quando uma ferramenta acabou de rodar. Se \
@@ -804,6 +808,12 @@ def run_commitments_followup_now():
 def run_second_brain_checkin_now():
     background_agents.run_second_brain_checkin_job()
     return {"ok": True, "snapshot": _compute_agent_snapshot("second_brain_checkin")}
+
+
+@app.post("/agents/machine_sync/run", dependencies=[Depends(require_api_key)])
+def run_machine_sync_now():
+    background_agents.run_machine_sync_job()
+    return {"ok": True, "snapshot": _compute_agent_snapshot("machine_sync")}
 
 
 # Endpoints simples de compromissos, pra uso futuro numa interface dedicada

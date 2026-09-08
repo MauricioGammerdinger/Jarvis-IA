@@ -44,6 +44,16 @@ def init_db():
             conn.execute("ALTER TABLE memories ADD COLUMN ultima_cobranca_em TEXT")
         except sqlite3.OperationalError:
             pass  # coluna já existe
+        try:
+            # Sincronização entre PCs: um ID numérico (autoincrement) colide
+            # entre máquinas diferentes (os dois podem ter um registro com
+            # id=5, sendo coisas totalmente diferentes) — um UUID é único de
+            # verdade, independente de onde foi criado.
+            conn.execute("ALTER TABLE memories ADD COLUMN sync_uuid TEXT")
+            conn.execute("ALTER TABLE memories ADD COLUMN origem_maquina TEXT")
+        except sqlite3.OperationalError:
+            pass  # coluna já existe
+        _backfill_sync_uuid(conn, "memories")
 
         conn.execute(
             """
@@ -159,6 +169,13 @@ def init_db():
             )
             """
         )
+        try:
+            conn.execute("ALTER TABLE commitments ADD COLUMN sync_uuid TEXT")
+            conn.execute("ALTER TABLE commitments ADD COLUMN origem_maquina TEXT")
+        except sqlite3.OperationalError:
+            pass
+        _backfill_sync_uuid(conn, "commitments")
+
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS audit_log (
@@ -178,6 +195,35 @@ def init_db():
         if "notificado" not in cols:
             conn.execute("ALTER TABLE email_triage_cache ADD COLUMN notificado INTEGER NOT NULL DEFAULT 0")
         conn.commit()
+
+
+def _backfill_sync_uuid(conn, tabela: str) -> None:
+    """
+    Preenche sync_uuid/origem_maquina pra registros que já existiam antes
+    dessa coluna existir — sem isso, tudo que já estava salvo ficaria de
+    fora da sincronização entre PCs pra sempre.
+    """
+    import uuid as uuid_module
+
+    machine_id = _get_or_create_machine_id()
+    rows = conn.execute(f"SELECT id FROM {tabela} WHERE sync_uuid IS NULL").fetchall()
+    for row in rows:
+        conn.execute(
+            f"UPDATE {tabela} SET sync_uuid = ?, origem_maquina = ? WHERE id = ?",
+            (str(uuid_module.uuid4()), machine_id, row["id"]),
+        )
+
+
+def _get_or_create_machine_id() -> str:
+    """Identificador único e ESTÁVEL dessa máquina — gerado uma vez, guardado num arquivo local, nunca muda depois."""
+    import uuid as uuid_module
+
+    machine_id_path = DB_PATH.parent / "machine_id.txt"
+    if machine_id_path.exists():
+        return machine_id_path.read_text(encoding="utf-8").strip()
+    novo_id = str(uuid_module.uuid4())[:8]
+    machine_id_path.write_text(novo_id, encoding="utf-8")
+    return novo_id
 
 
 # ── Cache de triagem de e-mail (por Message-ID, nunca reprocessa) ─────────
@@ -405,10 +451,12 @@ def mark_emails_notified(message_ids: list[str]) -> None:
 
 # ── Compromissos — "Second Brain ativo", cobra pendências sozinho ────────
 def add_commitment(texto: str, prazo: str | None = None) -> int:
+    import uuid as uuid_module
+
     with _connect() as conn:
         cursor = conn.execute(
-            "INSERT INTO commitments (texto, prazo, status, criado_em, cobrado) VALUES (?, ?, 'pendente', ?, 0)",
-            (texto, prazo, datetime.now(timezone.utc).isoformat()),
+            "INSERT INTO commitments (texto, prazo, status, criado_em, cobrado, sync_uuid, origem_maquina) VALUES (?, ?, 'pendente', ?, 0, ?, ?)",
+            (texto, prazo, datetime.now(timezone.utc).isoformat(), str(uuid_module.uuid4()), _get_or_create_machine_id()),
         )
         conn.commit()
         return cursor.lastrowid
@@ -459,10 +507,12 @@ def mark_commitment_followed_up(commitment_id: int) -> None:
 
 # ── Memórias ─────────────────────────────────────────────────────────────
 def add_memory(content: str, category: str = "general", embedding: str | None = None) -> int:
+    import uuid as uuid_module
+
     with _connect() as conn:
         cur = conn.execute(
-            "INSERT INTO memories (content, category, created_at, embedding) VALUES (?, ?, ?, ?)",
-            (content, category, datetime.now(timezone.utc).isoformat(), embedding),
+            "INSERT INTO memories (content, category, created_at, embedding, sync_uuid, origem_maquina) VALUES (?, ?, ?, ?, ?, ?)",
+            (content, category, datetime.now(timezone.utc).isoformat(), embedding, str(uuid_module.uuid4()), _get_or_create_machine_id()),
         )
         conn.commit()
         return cur.lastrowid
@@ -482,6 +532,63 @@ def list_memories() -> list[dict]:
             "SELECT id, content, category, created_at FROM memories ORDER BY id DESC"
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+# ── Sincronização entre PCs — leitura/escrita completas, com sync_uuid ────
+def get_memories_for_sync() -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, content, category, created_at, sync_uuid, origem_maquina FROM memories"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def upsert_memory_from_sync(sync_uuid: str, content: str, category: str, created_at: str, origem_maquina: str) -> bool:
+    """Insere uma memória vinda de outra máquina, só se esse sync_uuid ainda não existir localmente. Devolve True se inseriu algo novo."""
+    with _connect() as conn:
+        existe = conn.execute("SELECT 1 FROM memories WHERE sync_uuid = ?", (sync_uuid,)).fetchone()
+        if existe:
+            return False
+        conn.execute(
+            "INSERT INTO memories (content, category, created_at, sync_uuid, origem_maquina) VALUES (?, ?, ?, ?, ?)",
+            (content, category, created_at, sync_uuid, origem_maquina),
+        )
+        conn.commit()
+        return True
+
+
+def get_commitments_for_sync() -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, texto, prazo, status, criado_em, cobrado, sync_uuid, origem_maquina FROM commitments"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def upsert_commitment_from_sync(sync_uuid: str, texto: str, prazo: str | None, status: str, criado_em: str, origem_maquina: str) -> str:
+    """
+    Insere ou atualiza um compromisso vindo de outra máquina.
+    - Se não existe localmente: insere.
+    - Se existe e a versão remota está 'concluido' mas a local ainda 'pendente':
+      marca como concluído também (propagação só nesse sentido — nunca reabre
+      um compromisso que já foi concluído localmente, mesmo que a cópia remota
+      esteja desatualizada).
+    Devolve 'inserido', 'atualizado' ou 'sem_mudanca'.
+    """
+    with _connect() as conn:
+        local = conn.execute("SELECT status FROM commitments WHERE sync_uuid = ?", (sync_uuid,)).fetchone()
+        if not local:
+            conn.execute(
+                "INSERT INTO commitments (texto, prazo, status, criado_em, cobrado, sync_uuid, origem_maquina) VALUES (?, ?, ?, ?, 0, ?, ?)",
+                (texto, prazo, status, criado_em, sync_uuid, origem_maquina),
+            )
+            conn.commit()
+            return "inserido"
+        if status == "concluido" and local["status"] == "pendente":
+            conn.execute("UPDATE commitments SET status = 'concluido' WHERE sync_uuid = ?", (sync_uuid,))
+            conn.commit()
+            return "atualizado"
+        return "sem_mudanca"
 
 
 def search_memories(query: str, limit: int = 5) -> list[dict]:

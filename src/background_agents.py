@@ -70,6 +70,14 @@ AGENTS_REGISTRY = {
         "run_path": "/agents/second_brain_checkin/run",
         "arquivo": "jarvis.db (tabela memories)",
     },
+    "machine_sync": {
+        "nome": "Sincronização entre PCs",
+        "icon": "🔄",
+        "faz": "Compartilha Second Brain e compromissos com suas outras máquinas.",
+        "every_min": 10,
+        "run_path": "/agents/machine_sync/run",
+        "arquivo": "pasta compartilhada (JARVIS_SYNC_FOLDER)",
+    },
 }
 
 
@@ -92,6 +100,9 @@ def _agent_is_configured(agent_id: str) -> bool:
             return True
         if agent_id == "second_brain_checkin":
             return True
+        if agent_id == "machine_sync":
+            import machine_sync as ms
+            return ms.is_sync_enabled()
     except Exception:
         return False
     return True
@@ -329,6 +340,26 @@ def run_second_brain_checkin_job() -> None:
     db.record_agent_run("second_brain_checkin", "ok", "Check-in enviado", memoria["content"][:60])
 
 
+def run_machine_sync_job() -> None:
+    """Sincroniza Second Brain e compromissos com outras máquinas, via pasta compartilhada (ex: OneDrive). Não faz nada se não estiver configurado."""
+    import database as db
+    import machine_sync as ms
+
+    if not ms.is_sync_enabled():
+        return  # sem JARVIS_SYNC_FOLDER configurado — não é erro, só está desligado de propósito
+
+    resultado = ms.sync_now()
+    if not resultado["export"]["ok"] or not resultado["import"]["ok"]:
+        motivo = resultado["export"].get("motivo") or resultado["import"].get("motivo") or "erro desconhecido"
+        db.record_agent_run("machine_sync", "error", motivo, "")
+        return
+
+    imp = resultado["import"]
+    metric = f"{imp['memories_novas']} memória(s) nova(s), {imp['commitments_novos']} compromisso(s) novo(s), {imp['commitments_atualizados']} atualizado(s)"
+    detail = f"Sincronizado com {len(imp['maquinas'])} máquina(s)" if imp["maquinas"] else "Nenhuma outra máquina encontrada ainda"
+    db.record_agent_run("machine_sync", "ok", detail, metric)
+
+
 _scheduler: BackgroundScheduler | None = None
 
 
@@ -345,6 +376,7 @@ def start_scheduler() -> BackgroundScheduler:
     _scheduler.add_job(run_news_narration_job, "interval", minutes=5, id="news_narration_check", next_run_time=now)
     _scheduler.add_job(run_commitments_followup_job, "interval", minutes=30, id="commitments_followup", next_run_time=now)
     _scheduler.add_job(run_second_brain_checkin_job, "interval", hours=6, id="second_brain_checkin", next_run_time=now)
+    _scheduler.add_job(run_machine_sync_job, "interval", minutes=10, id="machine_sync", next_run_time=now)
     _scheduler.start()
     return _scheduler
 

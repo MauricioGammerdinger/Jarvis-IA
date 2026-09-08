@@ -179,6 +179,7 @@ jarvis-ia/
 │   ├── code_editor.py                                 # Leitura/edição de código (sem restrição)
 │   ├── git_projects.py                                # Status do git dos projetos cadastrados
 │   ├── health_check.py                                 # Checagem de saúde (Ollama, modelo, microfone)
+│   ├── machine_sync.py                                 # Sincronização entre PCs (pasta compartilhada)
 │   ├── ai_tokens.py                                    # Dashboard de Tokens de IA (custo + cota)
 │   ├── wake_word_listener.py                   # "Hey JARVIS" — ativação por voz
 │   └── tray_app.py                               # Ícone na bandeja do sistema
@@ -252,6 +253,7 @@ na raiz do projeto, não dentro de `src/`.
 | `cadastrar_assinatura_ia` / `registrar_uso_assinatura` / `ver_assinaturas_ia` | Cota de assinaturas (Claude/ChatGPT/Cursor) |
 | `registrar_compromisso` / `listar_compromissos` / `concluir_compromisso` | Second Brain ativo — cobra pendências sozinho |
 | `ver_trilha_auditoria` / `desfazer_edicao` | Tudo que o JARVIS fez sozinho, com desfazer real |
+| `sincronizar_maquinas` | Sincroniza Second Brain/compromissos com outras máquinas agora |
 | `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
@@ -1314,6 +1316,57 @@ claramente em vez de ficar reiniciando pra sempre sem sucesso.
   tentativa antiga (fora da janela de 5 minutos) para de contar —
   a janela desliza corretamente com o tempo, não é uma contagem fixa
   que nunca reseta
+
+## Sincronizando entre 2 PCs (ex: PC principal + notebook)
+
+Second Brain e compromissos passam a ser compartilhados entre suas
+máquinas — sem precisar de servidor externo nem conta em nuvem própria.
+Usa uma pasta que **já sincroniza sozinha** entre seus PCs (o mais óbvio:
+dentro do OneDrive, já que o próprio projeto já mora lá).
+
+### Como ativar
+No `.env` de **cada** máquina, aponte pro mesmo caminho compartilhado:
+```
+JARVIS_SYNC_FOLDER=C:\Users\gamme\OneDrive\Documentos\jarvis_sync
+```
+A cada 10 minutos (ou na hora, com `"Hey JARVIS, sincroniza as máquinas"`),
+cada PC exporta o que tem de novo e importa o que a outra máquina já
+exportou. Aparece como agente no Painel ("Sincronização entre PCs").
+
+### Por que não sincroniza o banco SQLite direto
+Isso é conhecido por corromper o arquivo — se o OneDrive tentar
+sincronizar bem no meio de uma escrita, dá problema. Em vez disso, cada
+máquina escreve um arquivo JSON **próprio** (nomeado com um ID único
+gerado uma vez por máquina), e só *lê* os arquivos das outras — nunca
+escreve em cima do arquivo de outra máquina.
+
+### Regra de conflito mais importante: nunca reabre o que já foi concluído
+Se você concluir um compromisso no notebook, e o PC principal ainda não
+sabe disso (só viu a versão pendente), o PC principal **nunca** reabre
+um compromisso que ele mesmo já tinha marcado como concluído antes,
+mesmo recebendo uma cópia desatualizada da outra máquina — só propaga
+"pendente → concluído", nunca o contrário.
+
+### Testado com 2 "máquinas" simuladas de verdade
+Criei 2 bancos SQLite completamente separados, com uma pasta
+compartilhada em comum, simulando exatamente o cenário de 2 PCs:
+- PC A cria uma meta, exporta, PC B importa e recebe de verdade
+- Importar uma segunda vez não duplica
+- PC A conclui um compromisso, PC B recebe a atualização depois de
+  importar de novo
+- **O cenário mais delicado**: PC B conclui um compromisso *antes* de
+  saber que o PC A ainda está mandando a versão pendente — confirmei
+  que o PC B nunca reabre o que já tinha concluído
+
+### Bug real encontrado e corrigido nesse processo
+As funções usadas no dia a dia pra criar memória/compromisso
+(`add_memory`, `add_commitment` — as mesmas que a Second Brain e as
+tools de voz já usavam) **nunca geravam o identificador único** usado
+pra sincronizar — só os registros antigos (de antes dessa funcionalidade
+existir) ganhavam esse identificador, no backfill da migração. Qualquer
+coisa criada depois ficaria invisível pra sincronização pra sempre, sem
+avisar nada. Corrigi na raiz (as duas funções agora sempre geram o
+identificador na criação) e retestei o ciclo completo pra confirmar.
 
 ## Fine-tuning — dando personalidade própria ao modelo
 
