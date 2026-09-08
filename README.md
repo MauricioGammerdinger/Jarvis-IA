@@ -182,6 +182,7 @@ jarvis-ia/
 │   ├── machine_sync.py                                 # Sincronização entre PCs (pasta compartilhada)
 │   ├── web_search.py                                    # Pesquisa na web (DuckDuckGo, grátis)
 │   ├── pdf_reader.py                                    # Leitura/extração de texto de PDF
+│   ├── focus_monitor.py                                 # Detecção de "travado" (opt-in, sem gravar em disco)
 │   ├── ai_tokens.py                                    # Dashboard de Tokens de IA (custo + cota)
 │   ├── wake_word_listener.py                   # "Hey JARVIS" — ativação por voz
 │   └── tray_app.py                               # Ícone na bandeja do sistema
@@ -259,6 +260,7 @@ na raiz do projeto, não dentro de `src/`.
 | `pesquisar_web` | Pesquisa na internet (DuckDuckGo, grátis, sem chave) |
 | `ler_pdf` | Extrai texto de um PDF pra discutir o conteúdo |
 | `iniciar_ditado_longo` | Ativa o modo de gravação longa (até 5min) por voz |
+| `ver_retrospectiva_semanal` | Resumo do que foi feito na semana, na hora |
 | `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
@@ -1410,6 +1412,52 @@ conversa contínua, só com tolerância de pausa maior e limite de gravação
 bem mais alto (até 5 minutos, configurável via `JARVIS_DICTATION_MAX_SECONDS`
 no `.env`). **Testado** o fluxo completo: comando inicial → servidor
 sinaliza início do modo ditado → grava o texto longo → processa.
+
+## Presença — retrospectiva semanal e detecção de foco
+
+### Retrospectiva semanal
+Uma vez por semana (ou quando você pedir), o JARVIS junta o que
+aconteceu: compromissos concluídos, metas novas mencionadas, commits nos
+projetos cadastrados — e manda como notificação proativa.
+```
+"Hey JARVIS, como foi minha semana?"
+```
+Nunca fica muda mesmo sem Ollama disponível (cai num template local com
+os dados reais, só perde a naturalidade do texto). Não notifica em
+semana "vazia" (sem nada relevante) e nunca manda mais de uma
+retrospectiva a cada 6 dias sozinho — só se você pedir na hora, aí
+sempre responde.
+
+### Detecção de "travado numa tarefa" — leia antes de ligar
+⚠️ **Desligado por padrão.** Só liga se você quiser, no `.env`:
+```
+JARVIS_FOCUS_MONITOR=1
+```
+
+**O que exatamente é rastreado, sem meias palavras:**
+- O **título** da janela em foco no momento (ex: "app.py - Visual Studio Code")
+- Há quanto tempo o mouse/teclado não tem atividade (só *que teve ou não*
+  atividade — nunca qual tecla, nunca posição de clique, nunca conteúdo)
+
+**O que NUNCA é feito:**
+- Nenhum screenshot, nenhum OCR, nenhum registro de tecla digitada
+- **Nada disso é gravado em disco** — o estado (qual janela, desde
+  quando) vive só na memória do processo. Se reiniciar o JARVIS, o
+  rastreamento começa do zero; não existe um arquivo de "histórico de
+  janelas" em lugar nenhum
+
+Se ficar mais de `JARVIS_STUCK_THRESHOLD_MINUTES` (padrão 45min)
+**ativamente** na mesma janela — sem contar tempo em que você ficou
+parado (`JARVIS_IDLE_THRESHOLD_MINUTES`, padrão 3min, pra não confundir
+"travado pensando" com "foi tomar um café") — avisa uma vez só por
+sessão de foco, nunca fica repetindo.
+
+**Testado**: os 7 cenários que mais importam — desligado por padrão não
+faz nada mesmo satisfazendo as condições; primeira vez vendo uma janela
+não avisa, só começa a contar; pouco tempo não avisa; tempo suficiente
+E ativo avisa certo (com o título e os minutos corretos); não repete o
+aviso pra mesma sessão de foco; não avisa se a pessoa ficou parada (saiu
+do lugar); e trocar de janela reseta a contagem do zero.
 
 ## Fine-tuning — dando personalidade própria ao modelo
 

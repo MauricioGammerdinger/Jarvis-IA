@@ -174,6 +174,12 @@ def init_db():
             conn.execute("ALTER TABLE commitments ADD COLUMN origem_maquina TEXT")
         except sqlite3.OperationalError:
             pass
+        try:
+            # Sem isso, a retrospectiva semanal não tem como saber QUANDO
+            # um compromisso foi concluído — só que está concluído agora.
+            conn.execute("ALTER TABLE commitments ADD COLUMN concluido_em TEXT")
+        except sqlite3.OperationalError:
+            pass
         _backfill_sync_uuid(conn, "commitments")
 
         conn.execute(
@@ -471,9 +477,36 @@ def list_commitments(status: str | None = None) -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def get_weekly_retrospective_data(dias: int = 7) -> dict:
+    """Junta o que aconteceu na última semana — usado pra montar a retrospectiva."""
+    with _connect() as conn:
+        corte = (datetime.now(timezone.utc) - timedelta(days=dias)).isoformat()
+
+        concluidos = conn.execute(
+            "SELECT texto, concluido_em FROM commitments WHERE status = 'concluido' AND concluido_em >= ? ORDER BY concluido_em",
+            (corte,),
+        ).fetchall()
+        ainda_pendentes = conn.execute(
+            "SELECT texto, prazo FROM commitments WHERE status = 'pendente'"
+        ).fetchall()
+        metas_novas = conn.execute(
+            "SELECT content FROM memories WHERE category = 'metas' AND created_at >= ? ORDER BY created_at",
+            (corte,),
+        ).fetchall()
+
+        return {
+            "compromissos_concluidos": [dict(r) for r in concluidos],
+            "compromissos_ainda_pendentes": [dict(r) for r in ainda_pendentes],
+            "metas_novas": [dict(r) for r in metas_novas],
+        }
+
+
 def complete_commitment(commitment_id: int) -> bool:
     with _connect() as conn:
-        cursor = conn.execute("UPDATE commitments SET status = 'concluido' WHERE id = ?", (commitment_id,))
+        cursor = conn.execute(
+            "UPDATE commitments SET status = 'concluido', concluido_em = ? WHERE id = ?",
+            (datetime.now(timezone.utc).isoformat(), commitment_id),
+        )
         conn.commit()
         return cursor.rowcount > 0
 
@@ -585,7 +618,10 @@ def upsert_commitment_from_sync(sync_uuid: str, texto: str, prazo: str | None, s
             conn.commit()
             return "inserido"
         if status == "concluido" and local["status"] == "pendente":
-            conn.execute("UPDATE commitments SET status = 'concluido' WHERE sync_uuid = ?", (sync_uuid,))
+            conn.execute(
+                "UPDATE commitments SET status = 'concluido', concluido_em = ? WHERE sync_uuid = ?",
+                (datetime.now(timezone.utc).isoformat(), sync_uuid),
+            )
             conn.commit()
             return "atualizado"
         return "sem_mudanca"

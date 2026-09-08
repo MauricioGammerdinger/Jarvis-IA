@@ -175,6 +175,10 @@ SINCRONIZAÇÃO ENTRE PCS: `sincronizar_maquinas` força uma sincronização ago
 compromissos com outras máquinas do usuário). Se não estiver configurado, explique que precisa \
 definir JARVIS_SYNC_FOLDER no .env.
 
+RETROSPECTIVA: `ver_retrospectiva_semanal` gera na hora um resumo do que foi feito na semana \
+(compromissos concluídos, metas mencionadas, commits) — use quando o usuário perguntar algo \
+como "como foi minha semana" ou "o que eu fiz esses dias".
+
 REGRA OBRIGATÓRIA SOBRE RESULTADOS DE FERRAMENTAS: depois de qualquer chamada de ferramenta, \
 sua resposta final DEVE refletir o que realmente aconteceu — nunca dê uma resposta genérica \
 tipo "Estou pronto, o que você gostaria de fazer?" quando uma ferramenta acabou de rodar. Se \
@@ -814,6 +818,12 @@ def run_second_brain_checkin_now():
 def run_machine_sync_now():
     background_agents.run_machine_sync_job()
     return {"ok": True, "snapshot": _compute_agent_snapshot("machine_sync")}
+
+
+@app.post("/agents/weekly_retrospective/run", dependencies=[Depends(require_api_key)])
+def run_weekly_retrospective_now():
+    texto = background_agents.run_weekly_retrospective_job(forcar=True)
+    return {"ok": True, "texto": texto, "snapshot": _compute_agent_snapshot("weekly_retrospective")}
 
 
 # Endpoints simples de compromissos, pra uso futuro numa interface dedicada

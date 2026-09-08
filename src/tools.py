@@ -23,6 +23,7 @@ import httpx
 from PIL import Image, ImageGrab
 
 import ai_tokens
+import background_agents
 import calendar_hub
 import code_editor
 import git_projects
@@ -834,6 +835,11 @@ TOOLS = [
         ),
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "ver_retrospectiva_semanal",
+        "description": "Gera a retrospectiva da semana agora (o que foi concluído, metas mencionadas, commits) — sem esperar o ciclo automático.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -1216,6 +1222,9 @@ def execute_tool(name: str, tool_input: dict) -> str:
 
     if name == "iniciar_ditado_longo":
         return "Pode ditar seu texto — vou continuar ouvindo por até 5 minutos, sem cortar por causa de pausa."
+
+    if name == "ver_retrospectiva_semanal":
+        return background_agents.run_weekly_retrospective_job(forcar=True)
 
     return f"Ferramenta desconhecida: {name}"
 

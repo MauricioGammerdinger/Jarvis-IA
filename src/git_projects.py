@@ -95,3 +95,11 @@ def get_git_status(caminho: str) -> dict:
         "ahead": ahead,
         "behind": behind,
     }
+
+
+def count_commits_since(caminho: str, dias: int = 7) -> int:
+    """Quantos commits foram feitos nos últimos N dias — usado na retrospectiva semanal. Devolve 0 se não for repositório git (não é erro fatal)."""
+    ok, saida = _run_git(caminho, ["log", f"--since={dias}.days.ago", "--oneline"])
+    if not ok:
+        return 0
+    return len([l for l in saida.splitlines() if l.strip()])

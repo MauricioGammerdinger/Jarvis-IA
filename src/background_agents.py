@@ -9,6 +9,7 @@ o endpoint `/api/agents` leem daqui, evitando duplicar a "verdade".
 """
 
 import datetime
+import json
 import time
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -78,6 +79,22 @@ AGENTS_REGISTRY = {
         "run_path": "/agents/machine_sync/run",
         "arquivo": "pasta compartilhada (JARVIS_SYNC_FOLDER)",
     },
+    "weekly_retrospective": {
+        "nome": "Retrospectiva Semanal",
+        "icon": "📅",
+        "faz": "Resume o que você realizou na semana — compromissos, metas, commits.",
+        "every_min": 7 * 24 * 60,
+        "run_path": "/agents/weekly_retrospective/run",
+        "arquivo": "jarvis.db (commitments + memories) + projetos de código",
+    },
+    "focus_monitor": {
+        "nome": "Detecção de Foco",
+        "icon": "👀",
+        "faz": "Avisa se você ficar muito tempo na mesma janela (opt-in, desligado por padrão).",
+        "every_min": 3,
+        "run_path": None,  # não faz sentido "forçar" — é uma checagem de estado momentâneo
+        "arquivo": "memória do processo (nunca grava em disco)",
+    },
 }
 
 
@@ -103,6 +120,11 @@ def _agent_is_configured(agent_id: str) -> bool:
         if agent_id == "machine_sync":
             import machine_sync as ms
             return ms.is_sync_enabled()
+        if agent_id == "weekly_retrospective":
+            return True
+        if agent_id == "focus_monitor":
+            import focus_monitor as fm
+            return fm.FOCUS_MONITOR_ENABLED
     except Exception:
         return False
     return True
@@ -360,6 +382,110 @@ def run_machine_sync_job() -> None:
     db.record_agent_run("machine_sync", "ok", detail, metric)
 
 
+def _build_offline_retrospective(contexto: dict) -> str:
+    """Fallback sem IA — template local, sempre funciona, mesmo sem Ollama disponível."""
+    partes = ["Sua semana em resumo:"]
+    if contexto["compromissos_concluidos"]:
+        partes.append("Você concluiu: " + "; ".join(contexto["compromissos_concluidos"]) + ".")
+    if contexto["metas_mencionadas"]:
+        partes.append("Metas novas mencionadas: " + "; ".join(contexto["metas_mencionadas"]) + ".")
+    if contexto["total_commits"] > 0:
+        partes.append(f"{contexto['total_commits']} commit(s): " + ", ".join(contexto["commits_por_projeto"]) + ".")
+    if contexto["compromissos_ainda_pendentes"]:
+        partes.append(f"Ainda pendente: {len(contexto['compromissos_ainda_pendentes'])} compromisso(s).")
+    return " ".join(partes)
+
+
+def run_weekly_retrospective_job(forcar: bool = False) -> None:
+    """
+    Retrospectiva semanal: junta compromissos concluídos, metas novas
+    mencionadas, e commits nos projetos cadastrados na última semana — e
+    manda como notificação. Roda no máximo 1x a cada 6 dias sozinho (a
+    menos que `forcar=True`, usado quando o usuário pede na hora).
+    """
+    import database as db
+    import git_projects
+
+    if not forcar:
+        ultimas = [n for n in db.list_all_notifications(limite=20) if n["tipo"] == "retrospectiva"]
+        if ultimas:
+            ultimo_dt = datetime.datetime.fromisoformat(ultimas[0]["created_at"])
+            if ultimo_dt.tzinfo is None:
+                ultimo_dt = ultimo_dt.replace(tzinfo=datetime.timezone.utc)
+            dias_desde_ultima = (datetime.datetime.now(datetime.timezone.utc) - ultimo_dt).total_seconds() / 86400
+            if dias_desde_ultima < 6:
+                db.record_agent_run("weekly_retrospective", "ok", "Ainda dentro do intervalo mínimo (1x por semana)", "")
+                return
+
+    dados = db.get_weekly_retrospective_data(dias=7)
+
+    total_commits = 0
+    projetos_com_commit = []
+    for projeto in git_projects.load_code_projects():
+        commits = git_projects.count_commits_since(projeto["caminho"], dias=7)
+        if commits > 0:
+            total_commits += commits
+            projetos_com_commit.append(f"{projeto['nome']} ({commits})")
+
+    nada_relevante = not dados["compromissos_concluidos"] and not dados["metas_novas"] and total_commits == 0
+    if nada_relevante:
+        db.record_agent_run("weekly_retrospective", "ok", "Semana tranquila, nada relevante pra destacar", "")
+        return "Semana tranquila por aqui — nada de compromisso concluído, meta nova, ou commit nos projetos cadastrados."
+
+    contexto = {
+        "compromissos_concluidos": [c["texto"] for c in dados["compromissos_concluidos"]],
+        "compromissos_ainda_pendentes": [c["texto"] for c in dados["compromissos_ainda_pendentes"]],
+        "metas_mencionadas": [m["content"] for m in dados["metas_novas"]],
+        "commits_por_projeto": projetos_com_commit,
+        "total_commits": total_commits,
+    }
+
+    try:
+        import llm_client
+
+        system = (
+            "Monte uma retrospectiva semanal curta e calorosa (não robótica), 3-5 frases, "
+            "destacando o que a pessoa realizou essa semana com os dados abaixo. Termine com "
+            "um comentário positivo ou de incentivo. Não invente nada que não está nos dados."
+        )
+        result = llm_client.chat(messages=[{"role": "user", "content": json.dumps(contexto, ensure_ascii=False)}], tools=[], system=system)
+        texto = result["text"].strip() or _build_offline_retrospective(contexto)
+    except Exception:
+        texto = _build_offline_retrospective(contexto)
+
+    db.create_notification("retrospectiva", "📅 Sua semana em resumo", texto)
+    db.record_agent_run(
+        "weekly_retrospective", "ok", "Retrospectiva enviada",
+        f"{total_commits} commit(s), {len(dados['compromissos_concluidos'])} compromisso(s) concluído(s)",
+    )
+    return texto
+
+
+def run_focus_monitor_job() -> None:
+    """
+    Detecção de "travado numa tarefa" — desligado por padrão (opt-in via
+    JARVIS_FOCUS_MONITOR=1 no .env). Só cria notificação quando o próprio
+    módulo detecta tempo demais na mesma janela sem ficar parado — nunca
+    grava nada em disco, o estado vive só na memória do processo.
+    """
+    import database as db
+    import focus_monitor as fm
+
+    if not fm.FOCUS_MONITOR_ENABLED:
+        return  # desligado de propósito — nem tenta, nem registra estado
+
+    aviso = fm.check_stuck()
+    if aviso:
+        db.create_notification(
+            "foco",
+            "👀 Notei que você está há um tempo na mesma tela",
+            f"Faz {aviso['minutos']} minutos que você está em \"{aviso['titulo']}\" — precisa de ajuda com algo?",
+        )
+        db.record_agent_run("focus_monitor", "ok", "Detectou tempo prolongado na mesma janela", aviso["titulo"][:60])
+    else:
+        db.record_agent_run("focus_monitor", "ok", "Monitorando", "")
+
+
 _scheduler: BackgroundScheduler | None = None
 
 
@@ -377,6 +503,8 @@ def start_scheduler() -> BackgroundScheduler:
     _scheduler.add_job(run_commitments_followup_job, "interval", minutes=30, id="commitments_followup", next_run_time=now)
     _scheduler.add_job(run_second_brain_checkin_job, "interval", hours=6, id="second_brain_checkin", next_run_time=now)
     _scheduler.add_job(run_machine_sync_job, "interval", minutes=10, id="machine_sync", next_run_time=now)
+    _scheduler.add_job(run_weekly_retrospective_job, "interval", hours=12, id="weekly_retrospective_check", next_run_time=now)
+    _scheduler.add_job(run_focus_monitor_job, "interval", minutes=3, id="focus_monitor", next_run_time=now)
     _scheduler.start()
     return _scheduler
 
