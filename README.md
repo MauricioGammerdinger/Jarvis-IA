@@ -178,6 +178,7 @@ jarvis-ia/
 │   ├── background_agents.py                          # Agendador dos agentes de fundo
 │   ├── code_editor.py                                 # Leitura/edição de código (sem restrição)
 │   ├── git_projects.py                                # Status do git dos projetos cadastrados
+│   ├── health_check.py                                 # Checagem de saúde (Ollama, modelo, microfone)
 │   ├── ai_tokens.py                                    # Dashboard de Tokens de IA (custo + cota)
 │   ├── wake_word_listener.py                   # "Hey JARVIS" — ativação por voz
 │   └── tray_app.py                               # Ícone na bandeja do sistema
@@ -1275,6 +1276,44 @@ automático que já existia.
   trilha, cliquei em "Desfazer", e confirmei abrindo o arquivo no disco
   que o conteúdo voltou ao original — depois tentei desfazer de novo e o
   sistema bloqueou corretamente (já tinha sido desfeito)
+
+## Infraestrutura — sobe sozinho, checa a saúde, se cura sozinho
+
+Três melhorias de confiabilidade, pensadas pra você não precisar ficar de
+olho o tempo todo:
+
+### Auto-start no Windows
+Durante a instalação (`setup.ps1`), você escolhe se quer que o JARVIS
+ligue sozinho quando o Windows iniciar — cria um atalho na pasta de
+Inicialização apontando pro ícone de bandeja (que por sua vez sobe
+servidor + escuta de voz por trás, sem janela nenhuma aparecendo).
+Aparece no Gerenciador de Tarefas → Aplicativos de inicialização,
+habilitável/desabilitável por lá se mudar de ideia depois.
+
+### Checagem de saúde ao ligar
+Antes de dizer "pronto", o ícone de bandeja confere 3 coisas e avisa
+(notificação do Windows) se algo estiver faltando, em vez de você
+descobrir só na hora de usar:
+- Ollama está rodando?
+- O modelo configurado (`JARVIS_MODEL`) já foi baixado?
+- Tem microfone disponível?
+- **Testado**: os 4 cenários (Ollama de pé/fora do ar, modelo
+  presente/faltando, microfone presente/ausente), isolando corretamente
+  qual dos 3 está com problema sem confundir com os outros
+
+### Reinício automático se cair (autocura)
+Se o servidor ou a escuta de voz caírem sozinhos (crash), o ícone de
+bandeja percebe e reinicia automaticamente, com aviso. Tem um limite —
+até 5 tentativas em 5 minutos — pra nunca entrar num loop infinito de
+crash se algo estiver fundamentalmente quebrado (por exemplo, uma
+dependência faltando); depois de esgotar, para de tentar sozinho e avisa
+claramente em vez de ficar reiniciando pra sempre sem sucesso.
+- **Testado**: confirmei que detecta processo morto e chama o reinício
+  sozinho, com notificação; testei a proteção contra loop infinito
+  (permite até a 5ª tentativa, bloqueia a 6ª); e testei que uma
+  tentativa antiga (fora da janela de 5 minutos) para de contar —
+  a janela desliza corretamente com o tempo, não é uma contagem fixa
+  que nunca reseta
 
 ## Fine-tuning — dando personalidade própria ao modelo
 
