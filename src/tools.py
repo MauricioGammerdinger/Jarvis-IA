@@ -774,6 +774,23 @@ TOOLS = [
             "required": ["id"],
         },
     },
+    {
+        "name": "ver_trilha_auditoria",
+        "description": "Mostra tudo que o JARVIS fez sozinho recentemente — edições de arquivo, notificações proativas, autocura, tudo numa timeline.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"limite": {"type": "integer", "description": "Quantos itens mostrar (padrão 20)."}},
+        },
+    },
+    {
+        "name": "desfazer_edicao",
+        "description": "Desfaz uma edição de arquivo específica, restaurando o conteúdo de antes (a partir do backup automático). USE quando o usuário disser algo como 'desfaz aquela última edição' ou 'volta o arquivo como estava'.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"type": "integer", "description": "ID da entrada de auditoria (veja em ver_trilha_auditoria)."}},
+            "required": ["id"],
+        },
+    },
 ]
 
 
@@ -1119,6 +1136,20 @@ def execute_tool(name: str, tool_input: dict) -> str:
     if name == "concluir_compromisso":
         sucesso = db.complete_commitment(tool_input["id"])
         return f"Compromisso #{tool_input['id']} marcado como concluído!" if sucesso else f"Compromisso #{tool_input['id']} não encontrado."
+
+    if name == "ver_trilha_auditoria":
+        timeline = db.get_full_timeline(limite=tool_input.get("limite", 20))
+        if not timeline:
+            return "Nada na trilha de auditoria ainda."
+        partes = []
+        for item in timeline:
+            marca = " (desfeito)" if item.get("desfeito") else ""
+            id_txt = f"#{item['id']}" if item["origem"] == "auditoria" else ""
+            partes.append(f"[{item['origem']}] {id_txt} {item['descricao']}{marca}")
+        return "\n".join(partes)
+
+    if name == "desfazer_edicao":
+        return code_editor.undo_last_edit(tool_input["id"])
 
     return f"Ferramenta desconhecida: {name}"
 

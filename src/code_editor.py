@@ -76,6 +76,7 @@ def write_file(caminho: str, novo_conteudo: str) -> str:
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             path.write_text(novo_conteudo, encoding="utf-8")
+            _log_audit("edicao_arquivo", f"Criou o arquivo novo '{path.name}'", str(path), None)
             return f"Arquivo novo criado: {path}"
         except Exception as e:
             return f"Erro ao criar '{caminho}': {e}"
@@ -93,9 +94,51 @@ def write_file(caminho: str, novo_conteudo: str) -> str:
 
     try:
         path.write_text(novo_conteudo, encoding="utf-8")
+        _log_audit("edicao_arquivo", f"Editou '{path.name}'", str(path), str(backup_path))
         return f"'{path.name}' atualizado com sucesso. Backup do conteúdo anterior em {backup_path}."
     except Exception as e:
         return f"Erro ao escrever '{caminho}' (o backup foi feito, nada foi perdido): {e}"
+
+
+def _log_audit(tipo: str, descricao: str, caminho_arquivo: str | None, backup_path: str | None) -> None:
+    """Registra na trilha de auditoria — nunca deixa uma falha aqui derrubar a edição em si."""
+    try:
+        import database as db
+        db.add_audit_entry(tipo, descricao, caminho_arquivo, backup_path)
+    except Exception:
+        pass
+
+
+def undo_last_edit(entry_id: int) -> str:
+    """
+    Desfaz uma edição de verdade — restaura o conteúdo do backup salvo
+    na hora da edição. Só funciona pra edições que TÊM backup (arquivos
+    recém-criados do zero não têm o que restaurar, só apagar, o que é
+    mais arriscado — por isso não oferecemos desfazer pra esse caso).
+    """
+    import database as db
+
+    entrada = db.get_audit_entry(entry_id)
+    if not entrada:
+        return f"Entrada de auditoria #{entry_id} não encontrada."
+    if entrada["tipo"] != "edicao_arquivo":
+        return f"Entrada #{entry_id} não é uma edição de arquivo, não dá pra desfazer assim."
+    if entrada["desfeito"]:
+        return f"Entrada #{entry_id} já tinha sido desfeita antes."
+    if not entrada["backup_path"]:
+        return f"Essa edição criou um arquivo novo — não tem versão anterior pra restaurar (só dá pra apagar manualmente, se quiser)."
+
+    backup_path = Path(entrada["backup_path"])
+    arquivo_path = Path(entrada["caminho_arquivo"])
+    if not backup_path.exists():
+        return f"O arquivo de backup '{backup_path}' não existe mais — não dá pra desfazer."
+
+    try:
+        shutil.copy2(backup_path, arquivo_path)
+        db.mark_audit_entry_undone(entry_id)
+        return f"'{arquivo_path.name}' restaurado pro estado de antes da edição #{entry_id}."
+    except Exception as e:
+        return f"Erro ao restaurar: {e}"
 
 
 def list_directory(caminho: str) -> str:

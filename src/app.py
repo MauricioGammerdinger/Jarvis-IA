@@ -166,6 +166,11 @@ amanhã"), chame `registrar_compromisso` SEM esperar ele pedir — é assim que 
 sozinho depois, perto do prazo, sem precisar ser perguntado. `listar_compromissos` e \
 `concluir_compromisso` gerenciam o que já foi guardado.
 
+TRILHA DE AUDITORIA: `ver_trilha_auditoria` mostra tudo que o JARVIS fez sozinho (edições de \
+arquivo, notificações proativas). `desfazer_edicao` restaura um arquivo pro estado de antes de \
+uma edição específica, usando o backup automático — use quando o usuário pedir pra desfazer ou \
+voltar uma mudança.
+
 REGRA OBRIGATÓRIA SOBRE RESULTADOS DE FERRAMENTAS: depois de qualquer chamada de ferramenta, \
 sua resposta final DEVE refletir o que realmente aconteceu — nunca dê uma resposta genérica \
 tipo "Estou pronto, o que você gostaria de fazer?" quando uma ferramenta acabou de rodar. Se \
@@ -795,6 +800,12 @@ def run_commitments_followup_now():
     return {"ok": True, "snapshot": _compute_agent_snapshot("commitments_followup")}
 
 
+@app.post("/agents/second_brain_checkin/run", dependencies=[Depends(require_api_key)])
+def run_second_brain_checkin_now():
+    background_agents.run_second_brain_checkin_job()
+    return {"ok": True, "snapshot": _compute_agent_snapshot("second_brain_checkin")}
+
+
 # Endpoints simples de compromissos, pra uso futuro numa interface dedicada
 @app.get("/commitments", dependencies=[Depends(require_api_key)])
 def list_commitments_endpoint(status: str | None = None):
@@ -807,6 +818,21 @@ def complete_commitment_endpoint(commitment_id: int):
     if not sucesso:
         raise HTTPException(status_code=404, detail=f"Compromisso #{commitment_id} não encontrado.")
     return {"ok": True}
+
+
+# ── Trilha de auditoria ────────────────────────────────────────────────
+@app.get("/audit-log", dependencies=[Depends(require_api_key)])
+def get_audit_log_endpoint(limite: int = 50):
+    return {"timeline": db.get_full_timeline(limite)}
+
+
+@app.post("/audit-log/{entry_id}/undo", dependencies=[Depends(require_api_key)])
+def undo_audit_entry_endpoint(entry_id: int):
+    resultado = code_editor.undo_last_edit(entry_id)
+    sucesso = "restaurado" in resultado
+    if not sucesso:
+        raise HTTPException(status_code=400, detail=resultado)
+    return {"ok": True, "mensagem": resultado}
 
 
 # As 8 áreas do "Second Brain" — memórias nessas categorias entram em TODA

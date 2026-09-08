@@ -250,6 +250,7 @@ na raiz do projeto, não dentro de `src/`.
 | `registrar_uso_ia` / `ver_custo_ia` | Gasto de API de IA, custo calculado, orçamento |
 | `cadastrar_assinatura_ia` / `registrar_uso_assinatura` / `ver_assinaturas_ia` | Cota de assinaturas (Claude/ChatGPT/Cursor) |
 | `registrar_compromisso` / `listar_compromissos` / `concluir_compromisso` | Second Brain ativo — cobra pendências sozinho |
+| `ver_trilha_auditoria` / `desfazer_edicao` | Tudo que o JARVIS fez sozinho, com desfazer real |
 | `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
@@ -1240,6 +1241,40 @@ saber. O que ficou autônomo:
   primeira tentativa, e confirmei que uma falha ao gerar o rascunho
   nunca derruba a notificação principal (é um extra, não pode quebrar o
   essencial)
+
+## Second Brain, parte 2: "puxa fatos sozinho" — e trilha de auditoria
+
+Fechando o que tinha ficado pela metade no item 3, e um item extra do
+brainstorm de ideias "à la Tony Stark".
+
+### Second Brain puxa uma meta de volta, sozinho
+De vez em quando (no máximo 1x por dia), o JARVIS traz uma meta da
+categoria "metas" de volta numa notificação — "Você mencionou querer
+aprender inglês fluente — como está indo isso?" — sem você perguntar.
+Nunca repete a mesma meta antes de 20 dias, e nunca manda mais de um
+check-in por dia, mesmo que várias metas estejam "vencidas" pra cobrança
+ao mesmo tempo (evita virar spam).
+- Novo agente no Painel: "Check-in do Second Brain"
+- **Testado**: prioriza a meta nunca cobrada antes de repetir uma
+  recente, e a trava contra bombardeio — testei especificamente rodando
+  o job duas vezes seguidas com várias metas pendentes, confirmando que
+  só a primeira gera notificação
+
+### Trilha de auditoria — "O que o JARVIS fez sozinho"
+Nova aba mostrando, numa timeline só, tudo que o JARVIS fez sem você
+pedir: edições de arquivo e notificações proativas, mais recente primeiro.
+Toda edição de arquivo (`editar_arquivo_codigo`) tem um botão **"↩
+Desfazer"** de verdade — restaura o conteúdo de antes, a partir do backup
+automático que já existia.
+```
+"Hey JARVIS, o que você fez sozinho hoje?"
+"Hey JARVIS, desfaz aquela última edição"
+```
+- **Testado de ponta a ponta, inclusive clicando na interface de
+  verdade** (não só chamando a API): editei um arquivo, apareceu na
+  trilha, cliquei em "Desfazer", e confirmei abrindo o arquivo no disco
+  que o conteúdo voltou ao original — depois tentei desfazer de novo e o
+  sistema bloqueou corretamente (já tinha sido desfeito)
 
 ## Fine-tuning — dando personalidade própria ao modelo
 

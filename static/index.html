@@ -355,6 +355,25 @@
     border-radius: 6px; padding: 7px 14px; font-size: 12.5px; font-weight: 700; cursor: pointer;
   }
 
+  /* ── Trilha de auditoria ──────────────────────────────────────────── */
+  .audit-item {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 14px; margin-bottom: 8px; font-size: 12.5px;
+  }
+  .audit-item.origem-notificacao { border-left: 3px solid var(--cyan); }
+  .audit-item.origem-auditoria { border-left: 3px solid var(--amber); }
+  .audit-item.desfeito { opacity: .55; }
+  .audit-item-info { overflow: hidden; }
+  .audit-item-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-dim); margin-bottom: 3px; }
+  .audit-item-desc { color: var(--text); }
+  .audit-item-time { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+  .audit-item button {
+    background: var(--panel); border: 1px solid var(--line); color: var(--text);
+    border-radius: 6px; padding: 5px 10px; font-size: 11.5px; cursor: pointer; flex-shrink: 0; font-weight: 600;
+  }
+  .audit-item button:hover { border-color: var(--cyan); color: var(--cyan); }
+
   /* ── Painel de Agentes — constelação animada ─────────────────────── */
   .agents-layout { display: flex; flex: 1; min-height: 0; overflow: hidden; }
   .agents-constellation-wrap { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; padding: 12px; }
@@ -825,6 +844,9 @@
     <div class="session-list" id="sessionList"></div>
 
     <div class="sidebar-footer">
+      <button class="sidebar-nav-item" id="auditLogTabBtn">
+        <span>📜 O que o JARVIS fez sozinho</span>
+      </button>
       <button class="sidebar-nav-item" id="aiTokensTabBtn">
         <span>💰 Tokens de IA</span>
         <span class="badge" id="aiTokensAlertBadge"></span>
@@ -1045,6 +1067,16 @@
       </div>
     </div>
 
+    <div class="panel" data-panel="audit-log">
+      <div class="hub-toolbar">
+        <strong>📜 O que o JARVIS fez sozinho</strong>
+        <button id="auditLogReloadBtn" class="icon-btn" title="Recarregar">⟳</button>
+      </div>
+      <div class="hub-inner" id="auditLogInner">
+        <div class="empty-state">Carregando...</div>
+      </div>
+    </div>
+
     <div class="panel" data-panel="ai-tokens">
       <div class="hub-toolbar">
         <strong>💰 Dashboard de Tokens de IA</strong>
@@ -1121,6 +1153,7 @@
     if (name === "news") loadNews();
     if (name === "agents") loadAgentsPanel();
     if (name === "ai-tokens") loadAiTokensPanel();
+    if (name === "audit-log") loadAuditLog();
     if (name === "settings") { loadMicDevices(); loadApps(); loadCalendarsConfig(); loadEmailAccountsConfig(); loadNewsTopicsConfig(); loadCodeProjectsConfig(); loadNarrationHour(); loadNewsSourcesConfig(); }
     closeSidebarOnMobile();
   }
@@ -2961,6 +2994,56 @@
       el.innerHTML = `<div class="empty-state">Falha ao carregar: ${escapeHtml(err.message)}</div>`;
     }
   }
+
+  // ── Trilha de auditoria — tudo que o JARVIS fez sozinho ─────────────
+  async function loadAuditLog() {
+    const el = $("auditLogInner");
+    if (!apiKey) { el.innerHTML = ""; return; }
+    el.innerHTML = '<div class="empty-state">Carregando...</div>';
+    try {
+      const res = await fetch(serverUrl + "/audit-log?limite=50", { headers: { "X-API-Key": apiKey } });
+      const data = await res.json();
+      const timeline = data.timeline || [];
+      if (!timeline.length) {
+        el.innerHTML = '<div class="empty-state">Nada por aqui ainda — quando o JARVIS agir sozinho (editar arquivo, avisar algo), aparece nessa lista.</div>';
+        return;
+      }
+      el.innerHTML = "";
+      timeline.forEach((item) => {
+        const div = document.createElement("div");
+        const desfeitoClass = item.desfeito ? " desfeito" : "";
+        div.className = `audit-item origem-${item.origem}${desfeitoClass}`;
+        const podeDesfazer = item.origem === "auditoria" && item.tipo === "edicao_arquivo" && !item.desfeito && item.backup_path;
+        const dataFormatada = new Date(item.created_at).toLocaleString("pt-BR");
+        div.innerHTML = `
+          <div class="audit-item-info">
+            <div class="audit-item-badge">${item.origem === "auditoria" ? "Ação" : "Aviso"}${item.desfeito ? " · desfeito" : ""}</div>
+            <div class="audit-item-desc">${escapeHtml(item.descricao)}</div>
+            <div class="audit-item-time">${dataFormatada}</div>
+          </div>
+          ${podeDesfazer ? `<button data-id="${item.id}">↩ Desfazer</button>` : ""}`;
+        if (podeDesfazer) {
+          div.querySelector("button").addEventListener("click", async () => {
+            const btn = div.querySelector("button");
+            btn.disabled = true;
+            btn.textContent = "Desfazendo...";
+            try {
+              const res2 = await fetch(`${serverUrl}/audit-log/${item.id}/undo`, { method: "POST", headers: { "X-API-Key": apiKey } });
+              if (!res2.ok) { const err = await res2.json().catch(() => ({})); alert("Erro: " + (err.detail || res2.status)); }
+              loadAuditLog();
+            } catch (err) {
+              alert("Falha: " + err.message);
+            }
+          });
+        }
+        el.appendChild(div);
+      });
+    } catch (err) {
+      el.innerHTML = `<div class="empty-state">Falha ao carregar: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+  $("auditLogTabBtn")?.addEventListener("click", () => showPanel("audit-log"));
+  $("auditLogReloadBtn")?.addEventListener("click", loadAuditLog);
 
   async function loadCommands() {
     const el = $("commandsInner");

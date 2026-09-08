@@ -38,6 +38,12 @@ def init_db():
             conn.execute("ALTER TABLE memories ADD COLUMN embedding TEXT")
         except sqlite3.OperationalError:
             pass  # coluna já existe
+        try:
+            # Controla quando cada memória foi puxada de volta numa conversa
+            # sozinha ("Second Brain ativo") — evita repetir a mesma toda hora.
+            conn.execute("ALTER TABLE memories ADD COLUMN ultima_cobranca_em TEXT")
+        except sqlite3.OperationalError:
+            pass  # coluna já existe
 
         conn.execute(
             """
@@ -150,6 +156,19 @@ def init_db():
                 status TEXT NOT NULL DEFAULT 'pendente',
                 criado_em TEXT NOT NULL,
                 cobrado INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tipo TEXT NOT NULL,
+                descricao TEXT NOT NULL,
+                caminho_arquivo TEXT,
+                backup_path TEXT,
+                created_at TEXT NOT NULL,
+                desfeito INTEGER NOT NULL DEFAULT 0
             )
             """
         )
@@ -491,6 +510,83 @@ def delete_memory(memory_id: int) -> bool:
 def count_memories() -> int:
     with _connect() as conn:
         return conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+
+
+# ── Second Brain ativo: "puxa fatos sozinho" ────────────────────────────
+def get_memory_for_checkin(dias_minimos_entre_cobrancas: int = 20) -> dict | None:
+    """
+    Escolhe UMA memória pra trazer de volta numa conversa, sem o usuário
+    perguntar — prioriza a categoria 'metas' (é o que mais faz sentido
+    "cobrar"), pega a que está há mais tempo sem ser mencionada (ou nunca
+    foi), e nunca repete a mesma antes de `dias_minimos_entre_cobrancas`
+    dias — senão vira spam da mesma coisa toda hora.
+    """
+    with _connect() as conn:
+        limite = (datetime.now(timezone.utc) - timedelta(days=dias_minimos_entre_cobrancas)).isoformat()
+        row = conn.execute(
+            """
+            SELECT * FROM memories
+            WHERE category = 'metas'
+              AND (ultima_cobranca_em IS NULL OR ultima_cobranca_em < ?)
+            ORDER BY ultima_cobranca_em IS NOT NULL, ultima_cobranca_em ASC, created_at ASC
+            LIMIT 1
+            """,
+            (limite,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def mark_memory_checked_in(memory_id: int) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE memories SET ultima_cobranca_em = ? WHERE id = ?",
+            (datetime.now(timezone.utc).isoformat(), memory_id),
+        )
+        conn.commit()
+
+
+# ── Trilha de auditoria — tudo que o JARVIS fez sozinho, revisável ────────
+def add_audit_entry(tipo: str, descricao: str, caminho_arquivo: str | None = None, backup_path: str | None = None) -> int:
+    with _connect() as conn:
+        cursor = conn.execute(
+            "INSERT INTO audit_log (tipo, descricao, caminho_arquivo, backup_path, created_at, desfeito) VALUES (?, ?, ?, ?, ?, 0)",
+            (tipo, descricao, caminho_arquivo, backup_path, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def list_audit_log(limite: int = 100) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (limite,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_audit_entry(entry_id: int) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM audit_log WHERE id = ?", (entry_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def mark_audit_entry_undone(entry_id: int) -> bool:
+    with _connect() as conn:
+        cursor = conn.execute("UPDATE audit_log SET desfeito = 1 WHERE id = ?", (entry_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_full_timeline(limite: int = 100) -> list[dict]:
+    """
+    Junta a trilha de auditoria (ações com efeito, tipo edição de arquivo)
+    e as notificações proativas (avisos, sem efeito colateral) numa única
+    linha do tempo cronológica — "tudo que o JARVIS fez sozinho", num
+    lugar só, do mais recente pro mais antigo.
+    """
+    auditoria = [{**a, "origem": "auditoria"} for a in list_audit_log(limite)]
+    notifs = [{**n, "origem": "notificacao", "descricao": f"{n['titulo']}: {n['mensagem']}"} for n in list_all_notifications(limite)]
+    combinado = auditoria + notifs
+    combinado.sort(key=lambda x: x["created_at"], reverse=True)
+    return combinado[:limite]
 
 
 # ── Conversas ────────────────────────────────────────────────────────────

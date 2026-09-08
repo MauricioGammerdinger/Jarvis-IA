@@ -62,6 +62,14 @@ AGENTS_REGISTRY = {
         "run_path": "/agents/commitments_followup/run",
         "arquivo": "jarvis.db (tabela commitments)",
     },
+    "second_brain_checkin": {
+        "nome": "Check-in do Second Brain",
+        "icon": "🧠",
+        "faz": "Puxa uma meta de volta de vez em quando, sem você perguntar.",
+        "every_min": 24 * 60,
+        "run_path": "/agents/second_brain_checkin/run",
+        "arquivo": "jarvis.db (tabela memories)",
+    },
 }
 
 
@@ -81,6 +89,8 @@ def _agent_is_configured(agent_id: str) -> bool:
         if agent_id == "hey_jarvis":
             return True
         if agent_id == "commitments_followup":
+            return True
+        if agent_id == "second_brain_checkin":
             return True
     except Exception:
         return False
@@ -275,6 +285,50 @@ def run_commitments_followup_job() -> None:
     db.record_agent_run("commitments_followup", "ok", "Cobrança enviada", f"{len(pendencias)} pendência(s)")
 
 
+def run_second_brain_checkin_job() -> None:
+    """
+    Second Brain ativo, parte 2: de vez em quando, puxa UMA meta de volta
+    numa notificação, sem o usuário perguntar — "você mencionou querer X,
+    como está indo?". Roda devagar e nunca repete a mesma meta antes de
+    20 dias — e também nunca manda MAIS de um check-in por dia no total,
+    mesmo que existam várias metas pendentes de cobrança ao mesmo tempo
+    (senão viraria bombardeio em vez de "de vez em quando").
+    """
+    import database as db
+
+    ultimo_checkin = [n for n in db.list_all_notifications(limite=20) if n["tipo"] == "second_brain"]
+    if ultimo_checkin:
+        ultimo = datetime.datetime.fromisoformat(ultimo_checkin[0]["created_at"])
+        if ultimo.tzinfo is None:
+            ultimo = ultimo.replace(tzinfo=datetime.timezone.utc)
+        horas_desde_ultimo = (datetime.datetime.now(datetime.timezone.utc) - ultimo).total_seconds() / 3600
+        if horas_desde_ultimo < 20:
+            db.record_agent_run("second_brain_checkin", "ok", "Ainda dentro do intervalo mínimo entre check-ins", "")
+            return
+
+    memoria = db.get_memory_for_checkin(dias_minimos_entre_cobrancas=20)
+    if not memoria:
+        db.record_agent_run("second_brain_checkin", "ok", "Nada pra puxar agora", "")
+        return
+
+    try:
+        import llm_client
+
+        system = (
+            "Gere UMA frase curta, natural e calorosa, perguntando como está indo uma meta que a "
+            "pessoa mencionou antes. Não seja robótico. Exemplo de tom: 'Você mencionou querer "
+            "aprender inglês fluente — como está indo isso?'. Responda só a frase, nada mais."
+        )
+        result = llm_client.chat(messages=[{"role": "user", "content": memoria["content"]}], tools=[], system=system)
+        mensagem = result["text"].strip() or f"Você mencionou: '{memoria['content']}' — como está indo isso?"
+    except Exception:
+        mensagem = f"Você mencionou: '{memoria['content']}' — como está indo isso?"
+
+    db.create_notification("second_brain", "🧠 Só checando...", mensagem)
+    db.mark_memory_checked_in(memoria["id"])
+    db.record_agent_run("second_brain_checkin", "ok", "Check-in enviado", memoria["content"][:60])
+
+
 _scheduler: BackgroundScheduler | None = None
 
 
@@ -290,6 +344,7 @@ def start_scheduler() -> BackgroundScheduler:
     _scheduler.add_job(run_morning_digest_job, "interval", minutes=5, id="morning_digest_check", next_run_time=now)
     _scheduler.add_job(run_news_narration_job, "interval", minutes=5, id="news_narration_check", next_run_time=now)
     _scheduler.add_job(run_commitments_followup_job, "interval", minutes=30, id="commitments_followup", next_run_time=now)
+    _scheduler.add_job(run_second_brain_checkin_job, "interval", hours=6, id="second_brain_checkin", next_run_time=now)
     _scheduler.start()
     return _scheduler
 
