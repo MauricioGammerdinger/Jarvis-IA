@@ -18,6 +18,7 @@ Uso:
 
 import glob
 import io
+import json
 import os
 import sys
 import tempfile
@@ -260,6 +261,68 @@ def send_to_jarvis(audio_wav: bytes) -> dict:
     return resp.json()
 
 
+NARRATION_ENABLED = os.environ.get("JARVIS_NARRATION_ENABLED", "1") == "1"
+
+
+def _process_sse_lines(linhas) -> dict:
+    """
+    Processa as linhas de um stream SSE (formato "event: X" + "data: Y",
+    separados por linha em branco) — separado da chamada HTTP em si, pra
+    dar pra testar com uma lista de linhas fake, sem precisar de servidor
+    rodando de verdade. Fala cada narração de tool conforme processa
+    (se `NARRATION_ENABLED`), e devolve o resultado final no mesmo
+    formato de `send_to_jarvis`.
+    """
+    full_text = ""
+    resultado = {"reply": "", "session_id": "voz", "iniciar_ditado": False}
+    evento_atual = None
+
+    for linha in linhas:
+        if linha == "":
+            evento_atual = None  # linha em branco = fim do bloco, reseta pro próximo
+            continue
+        if linha.startswith("event: "):
+            evento_atual = linha[len("event: "):]
+            continue
+        if linha.startswith("data: "):
+            payload_raw = linha[len("data: "):]
+            if evento_atual == "tool":
+                if NARRATION_ENABLED:
+                    payload = json.loads(payload_raw)
+                    speak(payload["label"])
+            elif evento_atual == "done":
+                payload = json.loads(payload_raw)
+                resultado["iniciar_ditado"] = payload.get("iniciar_ditado", False)
+            elif evento_atual == "error":
+                payload = json.loads(payload_raw)
+                raise RuntimeError(payload.get("detail", "Erro desconhecido no streaming"))
+            elif evento_atual == "transcript":
+                pass  # só informativo, nada a fazer
+            else:
+                # Sem 'event:' explícito = chunk de texto da resposta final
+                full_text += json.loads(payload_raw)
+
+    resultado["reply"] = full_text
+    return resultado
+
+
+def send_to_jarvis_streaming(audio_wav: bytes) -> dict:
+    """
+    Versão com narração em tempo real — fala cada passo intermediário
+    (ex: "Consultando a memória...") conforme a tarefa avança, em vez de
+    ficar mudo até o fim (útil em tarefas com várias ferramentas
+    encadeadas). Se `JARVIS_NARRATION_ENABLED=0`, ainda usa esse
+    endpoint mas não fala nada no meio — só a resposta final, como antes.
+    """
+    files = {"audio": ("comando.wav", audio_wav, "audio/wav")}
+    data = {"session_id": "voz"}
+    with httpx.stream(
+        "POST", f"{JARVIS_API_URL}/chat/media/stream", headers=HEADERS, data=data, files=files, timeout=60
+    ) as resp:
+        resp.raise_for_status()
+        return _process_sse_lines(resp.iter_lines())
+
+
 def report_voice_state(estado: str) -> None:
     """Avisa o servidor em que estado o listener está (idle/ouvindo/processando/falando) — é isso que sincroniza a FACE no navegador com o que está acontecendo de verdade. Nunca lança exceção — se falhar, só não sincroniza dessa vez, não trava o listener por causa disso."""
     try:
@@ -355,7 +418,7 @@ def handle_wake_word_detected(device=None) -> None:
     print("[jarvis] Processando...")
     report_voice_state("processando")
     try:
-        resposta = send_to_jarvis(audio)
+        resposta = send_to_jarvis_streaming(audio)
         reply = resposta["reply"]
         print(f"[jarvis] Resposta: {reply}")
         speak(reply)  # já reporta 'falando' -> 'idle' sozinho
@@ -407,7 +470,7 @@ def run_conversation_mode(device=None) -> None:
         print("[jarvis] Processando resposta de acompanhamento...")
         report_voice_state("processando")
         try:
-            resposta = send_to_jarvis(audio_wav)
+            resposta = send_to_jarvis_streaming(audio_wav)
             reply = resposta["reply"]
             print(f"[jarvis] Resposta: {reply}")
             if INTERRUPT_ENABLED:
@@ -449,7 +512,7 @@ def run_dictation_mode(device=None) -> None:
     print("[jarvis] Processando o texto ditado...")
     report_voice_state("processando")
     try:
-        resposta = send_to_jarvis(audio_wav)
+        resposta = send_to_jarvis_streaming(audio_wav)
         reply = resposta["reply"]
         print(f"[jarvis] Resposta: {reply}")
         speak(reply)

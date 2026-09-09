@@ -1102,7 +1102,7 @@ def _build_system_prompt(text: str) -> str:
 
 
 def _tool_activity_label(name: str, args: dict) -> str:
-    """Descrição curta e legível do que a tool está fazendo, pra mostrar na interface em tempo real."""
+    """Descrição curta e legível do que a tool está fazendo, pra mostrar na interface em tempo real (e narrar por voz)."""
     labels = {
         "remember": "Salvando na memória...",
         "recall": "Consultando a memória...",
@@ -1119,6 +1119,66 @@ def _tool_activity_label(name: str, args: dict) -> str:
         "create_linear_issue": "Criando issue no Linear...",
         "list_calendar_events": "Consultando o calendário...",
         "create_calendar_event": "Criando evento no calendário...",
+        "abrir_projeto": "Abrindo projeto...",
+        "list_available_projects": "Listando projetos disponíveis...",
+        "controlar_luz": "Mexendo na luz...",
+        "iniciar_configuracao_second_brain": "Iniciando configuração do Second Brain...",
+        "cadastrar_app": "Cadastrando aplicativo...",
+        "ver_agenda_hoje": "Consultando a agenda de hoje...",
+        "ver_agenda_semana": "Consultando a agenda da semana...",
+        "proximo_compromisso": "Verificando o próximo compromisso...",
+        "cadastrar_agenda": "Cadastrando agenda...",
+        "listar_agendas": "Listando agendas...",
+        "ver_emails": "Consultando os e-mails...",
+        "atualizar_emails": "Atualizando e-mails...",
+        "cadastrar_conta_email": "Cadastrando conta de e-mail...",
+        "listar_contas_email": "Listando contas de e-mail...",
+        "ver_noticias": "Consultando notícias...",
+        "gerenciar_assuntos_noticia": "Ajustando assuntos de notícia...",
+        "descobrir_fontes_noticia": "Procurando fontes de notícia...",
+        "cadastrar_fonte_noticia": "Cadastrando fonte de notícia...",
+        "resumir_noticia": "Resumindo notícia...",
+        "narrar_noticias": "Preparando narração de notícias...",
+        "configurar_horario_noticias": "Ajustando horário de notícias...",
+        "gerar_morning_digest": "Montando o resumo matinal...",
+        "ler_arquivo_codigo": "Lendo arquivo de código...",
+        "editar_arquivo_codigo": "Editando arquivo de código...",
+        "listar_pasta_codigo": "Listando arquivos da pasta...",
+        "cadastrar_projeto_codigo": "Cadastrando projeto...",
+        "status_git_projeto": "Verificando status do git...",
+        "registrar_uso_ia": "Registrando uso de IA...",
+        "ver_custo_ia": "Calculando custo de IA...",
+        "definir_orcamento_ia": "Ajustando orçamento de IA...",
+        "definir_preco_modelo_ia": "Ajustando preço de modelo...",
+        "cadastrar_assinatura_ia": "Cadastrando assinatura...",
+        "registrar_uso_assinatura": "Registrando uso da assinatura...",
+        "ver_assinaturas_ia": "Consultando assinaturas...",
+        "registrar_compromisso": "Guardando o compromisso...",
+        "listar_compromissos": "Listando compromissos...",
+        "concluir_compromisso": "Marcando compromisso como concluído...",
+        "ver_trilha_auditoria": "Consultando o que já fiz sozinho...",
+        "desfazer_edicao": "Desfazendo edição...",
+        "sincronizar_maquinas": "Sincronizando com outras máquinas...",
+        "pesquisar_web": "Pesquisando na web...",
+        "ler_pdf": "Lendo o PDF...",
+        "iniciar_ditado_longo": "Preparando modo de ditado...",
+        "ver_retrospectiva_semanal": "Montando a retrospectiva da semana...",
+        "ver_camera": "Olhando pela câmera...",
+        "registrar_pessoa": "Guardando a pessoa...",
+        "listar_pessoas": "Listando pessoas...",
+        "registrar_progresso_meta": "Registrando progresso...",
+        "criar_rotina": "Cadastrando rotina...",
+        "executar_rotina": "Executando rotina...",
+        "listar_rotinas": "Listando rotinas...",
+        "checar_atualizacao_jarvis": "Checando atualização...",
+        "aplicar_atualizacao_jarvis": "Aplicando atualização...",
+        "registrar_transacao": "Registrando transação...",
+        "ver_resumo_financeiro": "Montando resumo financeiro...",
+        "definir_orcamento_categoria": "Ajustando orçamento...",
+        "diagnostico_completo": "Rodando diagnóstico completo...",
+        "briefing_rapido": "Montando o briefing...",
+        "cadastrar_dispositivo_casa": "Cadastrando dispositivo...",
+        "listar_dispositivos_casa": "Listando dispositivos...",
     }
     return labels.get(name, f"Usando {name}...")
 
@@ -1367,6 +1427,84 @@ async def chat_media(
     if transcript_for_display:
         result["transcript"] = transcript_for_display
     return result
+
+
+@app.post("/chat/media/stream", dependencies=[Depends(require_api_key)])
+@limiter.limit("15/minute")
+async def chat_media_stream(
+    request: Request,
+    session_id: str = Form("default"),
+    audio: UploadFile = File(...),
+):
+    """
+    Versão com streaming do /chat/media — pensada pro listener de voz
+    narrar o que está fazendo EM TEMPO REAL (evento "tool" a cada passo),
+    em vez de ficar mudo até o fim de tarefas longas com várias
+    ferramentas. Só aceita áudio (a narração é o ponto principal disso;
+    texto puro já tem o /chat/stream).
+    """
+    raw = await audio.read()
+    _check_size(raw, audio.filename)
+    transcript = media.process_audio(raw, suffix=_suffix(audio.filename, ".wav"))
+    tom = media.detect_tone(raw, transcript)
+
+    user_text = f"[Transcrição do áudio]: {transcript}"
+    if tom != "neutro":
+        user_text += f"\n[Tom de voz detectado (aproximado, pode estar errado): {tom}]"
+
+    def event_stream():
+        logger.info(f"[stream-voz] session={session_id} | transcrição='{transcript[:80]}'")
+
+        conexao = embeddings.find_relevant_connection(user_text)
+        user_text_com_dica = user_text
+        if conexao:
+            user_text_com_dica += f"\n\n[Conexão possível com o Second Brain (mencione só se genuinamente relevante, sem forçar): \"{conexao['content']}\"]"
+
+        history = db.get_history(session_id)
+        history.append({"role": "user", "content": user_text_com_dica})
+        system = _build_system_prompt(user_text)
+
+        yield f"event: transcript\ndata: {json.dumps({'text': transcript})}\n\n"
+
+        MAX_TOOL_ITERATIONS = 20
+        ferramentas_chamadas = []
+
+        try:
+            for i in range(MAX_TOOL_ITERATIONS):
+                t0 = time.monotonic()
+                probe = llm_client.chat(history, get_active_tools(), system)
+                logger.info(
+                    f"[stream-voz] session={session_id} | iteração {i+1} em {time.monotonic() - t0:.1f}s "
+                    f"| tool_calls={[c['name'] for c in probe['tool_calls']]}"
+                )
+                if probe["tool_calls"]:
+                    history.append(probe["raw_message"])
+                    for call in probe["tool_calls"]:
+                        ferramentas_chamadas.append(call["name"])
+                        label = _tool_activity_label(call["name"], call["arguments"])
+                        yield f"event: tool\ndata: {json.dumps({'name': call['name'], 'label': label})}\n\n"
+                        _execute_tool_call(call, history)
+                    continue
+
+                full_text = ""
+                for chunk in llm_client.chat_stream(history, get_active_tools(), system):
+                    full_text += chunk
+                    yield f"data: {json.dumps(chunk)}\n\n"
+
+                db.append_message(session_id, "user", user_text)
+                db.append_message(session_id, "assistant", full_text)
+                yield (
+                    f"event: done\ndata: "
+                    f"{json.dumps({'iniciar_ditado': 'iniciar_ditado_longo' in ferramentas_chamadas})}\n\n"
+                )
+                return
+
+            yield f"event: error\ndata: {json.dumps({'detail': f'Limite de {MAX_TOOL_ITERATIONS} chamadas de ferramenta atingido.'})}\n\n"
+        except Exception as e:
+            logger.exception(f"[stream-voz] session={session_id} | ERRO")
+            yield f"event: error\ndata: {json.dumps({'detail': f'Falha ao falar com o Ollama: {e}'})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 def _check_size(raw: bytes, filename: str | None) -> None:

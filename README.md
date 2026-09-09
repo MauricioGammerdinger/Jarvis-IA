@@ -1878,6 +1878,39 @@ no processo, encontrei e corrigi um nome de campo errado
 (`get_next_event()` devolve `countdown`, não o que eu tinha assumido
 inicialmente) antes de virar bug de verdade.
 
+## Narração durante tarefas longas
+
+Antes, numa tarefa com várias ferramentas encadeadas (ex: "olha meu
+código, corrige o bug e testa"), o JARVIS ficava **mudo** até o fim —
+podia levar bons segundos sem nenhum sinal de vida. Agora, ele narra
+cada passo em voz alta conforme acontece:
+```
+"Lendo arquivo de código..."
+"Editando arquivo de código..."
+"Verificando status do git..."
+[e só depois] "Pronto, corrigi o bug e os testes passaram."
+```
+Ligado por padrão (`JARVIS_NARRATION_ENABLED=1`) — desliga se preferir
+silêncio até a resposta final.
+
+### Como funciona por baixo dos panos
+O chat de texto já tinha esse tipo de narração (rótulo de atividade
+visível na tela), mas a voz não tinha — ficava muda até o fim porque a
+chamada de voz era uma pergunta-resposta única, sem jeito de avisar
+"fazendo X" no meio do caminho. Criei um endpoint novo com streaming só
+pra voz (`/chat/media/stream`), e o listener agora processa esse stream
+em tempo real, falando cada narração assim que ela chega, e só depois
+falando a resposta final.
+
+**Testado** em 2 camadas: a lógica de processar o stream (`_process_sse_lines`)
+com linhas simuladas nos 3 cenários — narração ligada fala o passo
+intermediário, desligada monta a resposta sem falar nada no meio, e um
+evento de erro vira exceção de verdade em vez de ser ignorado; e o
+fluxo completo (`handle_wake_word_detected`) confirmando que narra o
+passo ANTES da resposta final, na ordem certa. Também expandi os
+rótulos de atividade pra cobrir todas as 68 tools (achei 2 sem rótulo
+específico durante o teste, corrigi antes de fechar).
+
 ## Fine-tuning — dando personalidade própria ao modelo
 
 Tem uma pasta `finetuning/` com um pipeline completo de LoRA fine-tuning
