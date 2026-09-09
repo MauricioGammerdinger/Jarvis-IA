@@ -42,6 +42,7 @@ import media
 import tts
 import calendar_hub
 import background_agents
+import self_update
 import code_editor
 import ai_tokens
 import git_projects
@@ -206,6 +207,12 @@ CASA E ROTINAS: `controlar_luz` aceita nome de dispositivo (omitir se só tiver 
 `criar_rotina`/`executar_rotina` encadeiam ações (ex: "cheguei em casa" → liga luz + mostra \
 agenda) — só aceitam tools seguras (leitura + controle de dispositivo), nunca tools que criam/\
 editam/apagam algo.
+
+ATUALIZAÇÃO: `checar_atualizacao_jarvis` é só leitura, pode chamar livremente. \
+`aplicar_atualizacao_jarvis` FAZ MUDANÇA REAL (git pull) — REGRA OBRIGATÓRIA: só chame depois \
+que o usuário confirmar explicitamente que quer aplicar, nunca automaticamente. Depois de \
+aplicar, deixe claro que ainda falta reiniciar o servidor manualmente (isso nunca acontece \
+sozinho).
 
 TOM DE VOZ: se a mensagem trouxer "[Tom de voz detectado: agitado]", é uma aproximação — o \
 usuário pode estar com pressa ou estressado. Seja mais direto e objetivo, sem cortar a \
@@ -878,6 +885,25 @@ def run_emotion_check_now():
 def run_birthday_reminder_now():
     background_agents.run_birthday_reminder_job()
     return {"ok": True, "snapshot": _compute_agent_snapshot("birthday_reminder")}
+
+
+@app.post("/agents/self_update_check/run", dependencies=[Depends(require_api_key)])
+def run_self_update_check_now():
+    background_agents.run_self_update_check_job()
+    return {"ok": True, "snapshot": _compute_agent_snapshot("self_update_check")}
+
+
+@app.get("/self-update/check", dependencies=[Depends(require_api_key)])
+def check_self_update_endpoint():
+    return self_update.check_for_updates()
+
+
+@app.post("/self-update/apply", dependencies=[Depends(require_api_key)])
+def apply_self_update_endpoint():
+    resultado = self_update.apply_update()
+    if not resultado["ok"]:
+        raise HTTPException(status_code=400, detail=resultado["motivo"])
+    return resultado
 
 
 # ── Progresso de metas (pro gráfico) ───────────────────────────────────

@@ -38,6 +38,7 @@ import google_calendar
 import morning_digest
 import mouse_control
 import news_radar
+import self_update
 import smart_light
 import word_control
 
@@ -949,6 +950,16 @@ TOOLS = [
         "description": "Lista as rotinas já cadastradas, com os passos de cada uma.",
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "checar_atualizacao_jarvis",
+        "description": "Checa se tem atualização do JARVIS disponível no GitHub — só leitura, não muda nada.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "aplicar_atualizacao_jarvis",
+        "description": "Aplica a atualização do JARVIS (git pull) — SEMPRE confirme com o usuário antes de chamar isso. Depois de aplicar, ainda precisa reiniciar o servidor manualmente (isso não é feito sozinho).",
+        "input_schema": {"type": "object", "properties": {}},
+    },
 ]
 
 # Tools seguras o bastante pra entrar numa rotina — só leitura de
@@ -1455,6 +1466,23 @@ def execute_tool(name: str, tool_input: dict) -> str:
             passos_txt = " → ".join(p["ferramenta"] for p in r["passos"])
             partes.append(f"'{r['nome']}': {passos_txt}")
         return "\n".join(partes)
+
+    if name == "checar_atualizacao_jarvis":
+        resultado = self_update.check_for_updates()
+        if not resultado["ok"]:
+            return resultado["motivo"]
+        if not resultado["tem_atualizacao"]:
+            return "Já está tudo atualizado."
+        commits_txt = "; ".join(resultado["commits"][:5])
+        return f"{resultado['total_commits_novos']} commit(s) novo(s) disponível(is): {commits_txt}"
+
+    if name == "aplicar_atualizacao_jarvis":
+        resultado = self_update.apply_update()
+        if not resultado["ok"]:
+            return resultado["motivo"]
+        if not resultado["aplicado"]:
+            return resultado["motivo"]
+        return resultado["mensagem"]
 
     return f"Ferramenta desconhecida: {name}"
 

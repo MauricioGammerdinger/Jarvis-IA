@@ -184,6 +184,7 @@ jarvis-ia/
 │   ├── pdf_reader.py                                    # Leitura/extração de texto de PDF
 │   ├── focus_monitor.py                                 # Detecção de "travado" (opt-in, sem gravar em disco)
 │   ├── camera_vision.py                                 # Visão por câmera (descrição + check-in emocional, opt-in)
+│   ├── self_update.py                                    # Auto-atualização (checar/aplicar, nunca reinicia sozinho)
 │   ├── ai_tokens.py                                    # Dashboard de Tokens de IA (custo + cota)
 │   ├── wake_word_listener.py                   # "Hey JARVIS" — ativação por voz
 │   └── tray_app.py                               # Ícone na bandeja do sistema
@@ -267,6 +268,7 @@ na raiz do projeto, não dentro de `src/`.
 | `registrar_progresso_meta` | Progresso de meta, alimenta o gráfico |
 | `cadastrar_dispositivo_casa` / `listar_dispositivos_casa` | Múltiplos dispositivos de casa inteligente |
 | `criar_rotina` / `executar_rotina` / `listar_rotinas` | Sequência de ações encadeadas (só tools seguras) |
+| `checar_atualizacao_jarvis` / `aplicar_atualizacao_jarvis` | Auto-atualização via GitHub, com confirmação |
 | `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
@@ -1716,6 +1718,35 @@ nunca pode virar um jeito de pular isso escondido. **Testado**: tool
 perigosa é rejeitada na criação, tool segura funciona normalmente, e a
 execução roda os passos em sequência de verdade, com o resultado de
 cada um.
+
+## Auto-atualização — puxa do GitHub sozinho, mas nunca aplica sozinho
+
+3 passos bem separados, de propósito — nenhum deles finge fazer mais do
+que faz de verdade:
+
+1. **Checar** (automático, a cada 6h) — só leitura (`git fetch` +
+   compara com o remoto). Nunca muda nada no disco. Se tiver
+   atualização, avisa — só uma vez pra cada situação, não fica repetindo
+   o mesmo aviso a cada checagem, mas avisa de novo se mais commits se
+   acumularem depois.
+2. **Aplicar** — precisa de confirmação explícita sua:
+   ```
+   "Hey JARVIS, tem atualização disponível?"
+   "Hey JARVIS, aplica a atualização"   (só depois de você confirmar)
+   ```
+   Faz o `git pull` de verdade.
+3. **Reiniciar** — você mesmo, clicando "Reiniciar servidor" no ícone da
+   bandeja (já existia, já testado antes). O processo do servidor **não
+   consegue recarregar o próprio código sozinho** — Python não funciona
+   assim — então nunca finge que consegue nem tenta se reiniciar
+   escondido.
+
+**Testado com git real, não mockado**: criei um repositório remoto de
+verdade, simulei outra máquina empurrando commits novos, e confirmei —
+a checagem detecta a quantidade certa de commits, e o `apply_update()`
+realmente muda o conteúdo do arquivo no disco (não só diz que
+funcionou). Também testei o não-repetir aviso pra mesma situação, e o
+avisar de novo quando mais commits se acumulam depois do primeiro aviso.
 
 ## Fine-tuning — dando personalidade própria ao modelo
 

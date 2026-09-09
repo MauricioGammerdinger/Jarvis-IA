@@ -111,6 +111,14 @@ AGENTS_REGISTRY = {
         "run_path": "/agents/birthday_reminder/run",
         "arquivo": "jarvis.db (tabela people)",
     },
+    "self_update_check": {
+        "nome": "Checagem de Atualização",
+        "icon": "🔄",
+        "faz": "Avisa se tem atualização do JARVIS no GitHub (nunca aplica sozinho).",
+        "every_min": 6 * 60,
+        "run_path": "/agents/self_update_check/run",
+        "arquivo": "repositório git do projeto",
+    },
 }
 
 
@@ -145,6 +153,8 @@ def _agent_is_configured(agent_id: str) -> bool:
             import camera_vision as cam
             return cam.EMOTION_CHECK_ENABLED
         if agent_id == "birthday_reminder":
+            return True
+        if agent_id == "self_update_check":
             return True
     except Exception:
         return False
@@ -581,6 +591,37 @@ def run_birthday_reminder_job() -> None:
     db.record_agent_run("birthday_reminder", "ok", f"{len(pessoas)} lembrete(s) enviado(s)", "")
 
 
+def run_self_update_check_job() -> None:
+    """Checa (só leitura) se tem atualização do JARVIS no GitHub — nunca aplica sozinho, só avisa."""
+    import database as db
+    import self_update as su
+
+    resultado = su.check_for_updates()
+    if not resultado["ok"]:
+        db.record_agent_run("self_update_check", "ok", resultado["motivo"], "")
+        return
+
+    if not resultado["tem_atualizacao"]:
+        db.record_agent_run("self_update_check", "ok", "Já está tudo atualizado", "")
+        return
+
+    # Não repete o aviso se já notificou sobre EXATAMENTE essa mesma
+    # quantidade de commits pendentes antes — só avisa de novo se a
+    # situação mudou (mais commits se acumularam desde o último aviso).
+    ultimas = [n for n in db.list_all_notifications(limite=20) if n["tipo"] == "atualizacao_disponivel"]
+    total_novo = resultado["total_commits_novos"]
+    if ultimas and f"{total_novo} commit" in ultimas[0]["mensagem"]:
+        db.record_agent_run("self_update_check", "ok", f"Já avisado sobre esses {total_novo} commit(s)", "")
+        return
+
+    db.create_notification(
+        "atualizacao_disponivel",
+        "🔄 Atualização disponível",
+        f"{total_novo} commit(s) novo(s) no GitHub. Diga 'atualiza o jarvis' pra aplicar (ainda precisa reiniciar depois).",
+    )
+    db.record_agent_run("self_update_check", "ok", f"{total_novo} commit(s) pendente(s)", "")
+
+
 _scheduler: BackgroundScheduler | None = None
 
 
@@ -603,6 +644,7 @@ def start_scheduler() -> BackgroundScheduler:
     import camera_vision as _cam_config
     _scheduler.add_job(run_emotion_check_job, "interval", minutes=_cam_config.EMOTION_CHECK_INTERVAL_MINUTES, id="emotion_check", next_run_time=now)
     _scheduler.add_job(run_birthday_reminder_job, "interval", hours=12, id="birthday_reminder", next_run_time=now)
+    _scheduler.add_job(run_self_update_check_job, "interval", hours=6, id="self_update_check", next_run_time=now)
     _scheduler.start()
     return _scheduler
 
