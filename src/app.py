@@ -194,6 +194,19 @@ CÂMERA: `ver_camera` tira uma foto agora e descreve o que vê. Se não tiver mo
 configurado, a ferramenta já avisa isso claramente — só repasse a mensagem, não invente uma \
 descrição do que "veria".
 
+PESSOAS: sempre que o usuário mencionar uma pessoa importante pela primeira vez (especialmente \
+com data de aniversário), chame `registrar_pessoa` sem esperar ele pedir — o JARVIS lembra do \
+aniversário sozinho, perto da data, sem precisar ser perguntado.
+
+METAS: sempre que o usuário mencionar progresso em algo (ex: "consegui correr 3km", "terminei \
+mais um capítulo"), chame `registrar_progresso_meta` sem esperar ele pedir — isso alimenta o \
+gráfico de progresso na tela.
+
+CASA E ROTINAS: `controlar_luz` aceita nome de dispositivo (omitir se só tiver 1 cadastrado). \
+`criar_rotina`/`executar_rotina` encadeiam ações (ex: "cheguei em casa" → liga luz + mostra \
+agenda) — só aceitam tools seguras (leitura + controle de dispositivo), nunca tools que criam/\
+editam/apagam algo.
+
 TOM DE VOZ: se a mensagem trouxer "[Tom de voz detectado: agitado]", é uma aproximação — o \
 usuário pode estar com pressa ou estressado. Seja mais direto e objetivo, sem cortar a \
 personalidade, só reduzindo rodeio. NÃO mencione que detectou tom, nem pergunte se ele está \
@@ -859,6 +872,34 @@ def run_weekly_retrospective_now():
 def run_emotion_check_now():
     background_agents.run_emotion_check_job()
     return {"ok": True, "snapshot": _compute_agent_snapshot("emotion_check")}
+
+
+@app.post("/agents/birthday_reminder/run", dependencies=[Depends(require_api_key)])
+def run_birthday_reminder_now():
+    background_agents.run_birthday_reminder_job()
+    return {"ok": True, "snapshot": _compute_agent_snapshot("birthday_reminder")}
+
+
+# ── Progresso de metas (pro gráfico) ───────────────────────────────────
+@app.get("/goals", dependencies=[Depends(require_api_key)])
+def list_goals_endpoint():
+    return {"goals": db.list_goals_with_progress_count()}
+
+
+@app.get("/goals/{memory_id}/progress", dependencies=[Depends(require_api_key)])
+def get_goal_progress_endpoint(memory_id: int):
+    return {"progress": db.get_goal_progress(memory_id)}
+
+
+class GoalProgressRequest(BaseModel):
+    valor: float | None = None
+    nota: str | None = None
+
+
+@app.post("/goals/{memory_id}/progress", dependencies=[Depends(require_api_key)])
+def add_goal_progress_endpoint(memory_id: int, req: GoalProgressRequest):
+    progress_id = db.add_goal_progress(memory_id, req.valor, req.nota)
+    return {"ok": True, "id": progress_id}
 
 
 # ── Estado de voz — ponte entre o listener e a FACE no navegador ──────────

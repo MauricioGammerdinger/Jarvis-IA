@@ -263,6 +263,10 @@ na raiz do projeto, não dentro de `src/`.
 | `iniciar_ditado_longo` | Ativa o modo de gravação longa (até 5min) por voz |
 | `ver_retrospectiva_semanal` | Resumo do que foi feito na semana, na hora |
 | `ver_camera` | Tira uma foto pela webcam e descreve o que vê |
+| `registrar_pessoa` / `listar_pessoas` | Pessoas importantes e aniversários |
+| `registrar_progresso_meta` | Progresso de meta, alimenta o gráfico |
+| `cadastrar_dispositivo_casa` / `listar_dispositivos_casa` | Múltiplos dispositivos de casa inteligente |
+| `criar_rotina` / `executar_rotina` / `listar_rotinas` | Sequência de ações encadeadas (só tools seguras) |
 | `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
@@ -1658,6 +1662,60 @@ tratado sem quebrar. **Não pude testar**: a precisão real da detecção
 com um rosto humano de verdade — isso depende inteiramente da
 biblioteca de terceiros, e de como ela se comporta com o seu rosto, sua
 iluminação, sua webcam.
+
+## Second Brain mais profundo — pessoas, aniversários, metas com gráfico
+
+### Pessoas e aniversários
+```
+"Hey JARVIS, minha mãe faz aniversário dia 15 de maio"   (guarda sozinho)
+"Hey JARVIS, quem eu tenho cadastrado?"
+```
+Lembra sozinho quando o aniversário está a até 7 dias de distância, uma
+vez por ano por pessoa. **Testado**: aniversário próximo aparece,
+distante não aparece, não repete no mesmo ano, e o caso mais delicado —
+**virada de ano** (aniversário em janeiro, hoje é dezembro) calculado
+certo.
+
+### Progresso de metas, com gráfico
+```
+"Hey JARVIS, consegui correr 3km hoje"   (registra sozinho)
+```
+Clique numa nota de meta no painel do Second Brain — se tiver progresso
+registrado, aparece um gráfico de linha. Usa comparação de texto simples
+(sem IA nem dependência nova) pra não duplicar "correr 5km" e "correr 5
+km" como metas diferentes. **Testado visualmente** (Playwright, clicando
+de verdade na interface): o gráfico apareceu corretamente com 3
+registros reais, linha e legenda do último valor.
+
+## Casa inteligente — múltiplos dispositivos e rotinas
+
+### Múltiplos dispositivos
+Antes só dava pra configurar 1 lâmpada fixa (`TAPO_BULB_IP`). Agora
+aceita vários, cada um com nome:
+```
+"Hey JARVIS, cadastra a luz da sala, IP 192.168.1.50"
+"Hey JARVIS, liga a luz da sala"
+```
+**Compatibilidade**: quem já tinha configurado a lâmpada antiga
+continua funcionando sem mudar nada — ela aparece sozinha como "Luz
+principal". **Testado**: config antiga preservada, múltiplos
+dispositivos coexistindo, busca por nome (sem diferenciar maiúscula),
+comodidade de aceitar qualquer nome quando só tem 1 cadastrado (e exigir
+nome certo quando tem mais de 1, pra evitar ambiguidade).
+
+### Rotinas ("presença → ação")
+```
+"Hey JARVIS, cria uma rotina 'cheguei em casa' que liga a luz e mostra a agenda"
+"Hey JARVIS, cheguei em casa"
+```
+⚠️ **Só aceita tools seguras** (leitura de informação + controle de
+dispositivo) — tools que criam, editam ou apagam algo (evento de
+calendário, arquivo, etc) são **bloqueadas na criação da rotina**, de
+propósito: essas sempre precisam de confirmação na hora, uma rotina
+nunca pode virar um jeito de pular isso escondido. **Testado**: tool
+perigosa é rejeitada na criação, tool segura funciona normalmente, e a
+execução roda os passos em sequência de verdade, com o resultado de
+cada um.
 
 ## Fine-tuning — dando personalidade própria ao modelo
 

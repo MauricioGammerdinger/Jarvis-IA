@@ -103,6 +103,14 @@ AGENTS_REGISTRY = {
         "run_path": None,
         "arquivo": "câmera (nunca salva imagem em disco)",
     },
+    "birthday_reminder": {
+        "nome": "Lembrete de Aniversário",
+        "icon": "🎂",
+        "faz": "Avisa quando o aniversário de alguém importante está chegando.",
+        "every_min": 24 * 60,
+        "run_path": "/agents/birthday_reminder/run",
+        "arquivo": "jarvis.db (tabela people)",
+    },
 }
 
 
@@ -136,6 +144,8 @@ def _agent_is_configured(agent_id: str) -> bool:
         if agent_id == "emotion_check":
             import camera_vision as cam
             return cam.EMOTION_CHECK_ENABLED
+        if agent_id == "birthday_reminder":
+            return True
     except Exception:
         return False
     return True
@@ -548,6 +558,29 @@ def run_emotion_check_job() -> None:
     db.record_agent_run("emotion_check", "ok", "Check-in enviado, injetado na conversa", "")
 
 
+def run_birthday_reminder_job() -> None:
+    """Lembra de aniversários próximos (dentro de 7 dias), uma vez por ano por pessoa."""
+    import database as db
+
+    pessoas = db.get_people_needing_birthday_reminder(dias_de_antecedencia=7)
+    if not pessoas:
+        db.record_agent_run("birthday_reminder", "ok", "Nenhum aniversário próximo", "")
+        return
+
+    for p in pessoas:
+        dias = p["dias_ate_aniversario"]
+        quando = "hoje" if dias == 0 else ("amanhã" if dias == 1 else f"em {dias} dias")
+        relacao_txt = f" ({p['relacao']})" if p.get("relacao") else ""
+        db.create_notification(
+            "aniversario",
+            "🎂 Aniversário chegando",
+            f"{p['nome']}{relacao_txt} faz aniversário {quando}.",
+        )
+        db.mark_birthday_reminded(p["id"])
+
+    db.record_agent_run("birthday_reminder", "ok", f"{len(pessoas)} lembrete(s) enviado(s)", "")
+
+
 _scheduler: BackgroundScheduler | None = None
 
 
@@ -569,6 +602,7 @@ def start_scheduler() -> BackgroundScheduler:
     _scheduler.add_job(run_focus_monitor_job, "interval", minutes=3, id="focus_monitor", next_run_time=now)
     import camera_vision as _cam_config
     _scheduler.add_job(run_emotion_check_job, "interval", minutes=_cam_config.EMOTION_CHECK_INTERVAL_MINUTES, id="emotion_check", next_run_time=now)
+    _scheduler.add_job(run_birthday_reminder_job, "interval", hours=12, id="birthday_reminder", next_run_time=now)
     _scheduler.start()
     return _scheduler
 

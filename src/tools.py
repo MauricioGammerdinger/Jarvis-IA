@@ -392,19 +392,37 @@ TOOLS = [
     {
         "name": "controlar_luz",
         "description": (
-            "Liga, desliga ou ajusta o brilho de uma lâmpada inteligente Tapo/Kasa configurada. "
-            "USE quando o usuário pedir pra ligar/desligar/ajustar a luz. Se a lâmpada não "
-            "estiver configurada ainda, a tool avisa isso claramente — não invente que "
-            "funcionou."
+            "Liga, desliga ou ajusta o brilho de um dispositivo inteligente Tapo/Kasa cadastrado "
+            "(luz, tomada, etc). USE quando o usuário pedir pra ligar/desligar/ajustar algo da "
+            "casa. Se só tiver 1 dispositivo cadastrado, não precisa acertar o nome exato. Se não "
+            "estiver configurado ainda, a tool avisa isso claramente — não invente que funcionou."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "acao": {"type": "string", "enum": ["ligar", "desligar", "brilho"], "description": "Ação a realizar."},
+                "dispositivo": {"type": "string", "description": "Nome do dispositivo (ex: 'luz da sala'). Omitir se só tiver 1 cadastrado."},
                 "brilho_percentual": {"type": "integer", "description": "Necessário só se acao='brilho'. De 1 a 100."},
             },
             "required": ["acao"],
         },
+    },
+    {
+        "name": "cadastrar_dispositivo_casa",
+        "description": "Cadastra um dispositivo Tapo/Kasa novo (luz, tomada) — precisa do IP dele na rede local.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nome": {"type": "string", "description": "Ex: 'luz da sala', 'tomada do abajur'."},
+                "ip": {"type": "string", "description": "IP do dispositivo na rede local (ex: 192.168.1.50)."},
+            },
+            "required": ["nome", "ip"],
+        },
+    },
+    {
+        "name": "listar_dispositivos_casa",
+        "description": "Lista os dispositivos de casa inteligente já cadastrados.",
+        "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "iniciar_configuracao_second_brain",
@@ -851,7 +869,102 @@ TOOLS = [
         "description": "Tira uma foto pela webcam agora e descreve o que vê. USE quando o usuário perguntar algo como 'o que você está vendo', 'como eu estou' (aparência), ou pedir pra você olhar pela câmera.",
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "registrar_pessoa",
+        "description": "Guarda uma pessoa importante (nome, relação, aniversário) — USE quando o usuário mencionar alguém relevante, especialmente se disser a data de aniversário.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nome": {"type": "string"},
+                "relacao": {"type": "string", "description": "Ex: 'mãe', 'amigo', 'colega de trabalho'."},
+                "aniversario": {"type": "string", "description": "Data no formato 'MM-DD' (ex: '05-15'), ou 'YYYY-MM-DD' se souber o ano."},
+                "notas": {"type": "string", "description": "Qualquer outra informação relevante sobre a pessoa."},
+            },
+            "required": ["nome"],
+        },
+    },
+    {
+        "name": "listar_pessoas",
+        "description": "Lista as pessoas importantes já guardadas, com aniversário e notas.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "registrar_progresso_meta",
+        "description": (
+            "Registra um avanço numa meta já existente (ou cria a meta se ainda não existir). "
+            "USE quando o usuário mencionar progresso em algo que soa como meta (ex: 'consegui "
+            "correr 3km hoje', 'terminei mais um capítulo do livro de inglês')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "meta": {"type": "string", "description": "Descrição da meta (ex: 'correr 5km sem parar')."},
+                "valor": {"type": "number", "description": "Valor numérico do progresso, se fizer sentido (ex: 3 de 'correu 3km'). Omitir se não houver número."},
+                "nota": {"type": "string", "description": "Descrição do que foi feito."},
+            },
+            "required": ["meta"],
+        },
+    },
+    {
+        "name": "criar_rotina",
+        "description": (
+            "Cria (ou atualiza) uma rotina — uma sequência de ações que rodam juntas quando "
+            "disparada por um nome/frase (ex: 'cheguei em casa' → liga a luz + mostra a agenda). "
+            "USE quando o usuário pedir pra criar uma rotina ou automação. Só aceita tools "
+            "seguras (leitura de informação + controle de dispositivo de casa) — nunca tools que "
+            "criam/editam/apagam algo (essas sempre precisam de confirmação na hora, não podem "
+            "ser encadeadas escondidas numa rotina)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nome": {"type": "string", "description": "Nome/frase de gatilho (ex: 'cheguei em casa')."},
+                "passos": {
+                    "type": "array",
+                    "description": "Lista ordenada de passos.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "ferramenta": {"type": "string", "description": "Nome de uma tool seguro (ver lista permitida)."},
+                            "argumentos": {"type": "object", "description": "Argumentos pra essa tool, no mesmo formato que ela normalmente espera."},
+                        },
+                        "required": ["ferramenta"],
+                    },
+                },
+            },
+            "required": ["nome", "passos"],
+        },
+    },
+    {
+        "name": "executar_rotina",
+        "description": "Executa uma rotina já cadastrada pelo nome, rodando todos os passos em sequência.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"nome": {"type": "string"}},
+            "required": ["nome"],
+        },
+    },
+    {
+        "name": "listar_rotinas",
+        "description": "Lista as rotinas já cadastradas, com os passos de cada uma.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
 ]
+
+# Tools seguras o bastante pra entrar numa rotina — só leitura de
+# informação e controle de dispositivo de casa. Qualquer tool que cria,
+# edita, apaga, ou manda mensagem/comando fica de fora de propósito: essas
+# sempre precisam de confirmação na hora (ver REGRA OBRIGATÓRIA no system
+# prompt), e uma rotina não pode ser um jeito de pular essa confirmação.
+ROTINA_TOOLS_PERMITIDAS = {
+    "controlar_luz", "listar_dispositivos_casa", "get_datetime",
+    "ver_agenda_hoje", "ver_agenda_semana", "proximo_compromisso",
+    "ver_emails", "ver_noticias", "gerar_morning_digest", "ver_camera",
+    "ver_custo_ia", "ver_assinaturas_ia", "listar_compromissos",
+    "listar_pessoas", "ver_retrospectiva_semanal", "ver_trilha_auditoria",
+    "listar_rotinas",
+}
+
 
 
 # ── Tools condicionais — reduz o total enviado ao modelo quando não fazem
@@ -986,13 +1099,24 @@ def execute_tool(name: str, tool_input: dict) -> str:
 
     if name == "controlar_luz":
         acao = tool_input["acao"]
+        dispositivo = tool_input.get("dispositivo", "")
         if acao == "ligar":
-            return smart_light.turn_on()
+            return smart_light.turn_on(dispositivo)
         if acao == "desligar":
-            return smart_light.turn_off()
+            return smart_light.turn_off(dispositivo)
         if acao == "brilho":
-            return smart_light.set_brightness(tool_input.get("brilho_percentual", 100))
+            return smart_light.set_brightness(tool_input.get("brilho_percentual", 100), dispositivo)
         return f"Ação de luz desconhecida: {acao}"
+
+    if name == "cadastrar_dispositivo_casa":
+        smart_light.add_device(tool_input["nome"], tool_input["ip"])
+        return f"Dispositivo '{tool_input['nome']}' cadastrado."
+
+    if name == "listar_dispositivos_casa":
+        dispositivos = smart_light.load_devices()
+        if not dispositivos:
+            return "Nenhum dispositivo cadastrado ainda."
+        return "\n".join(f"{d['nome']} ({d['ip']})" for d in dispositivos)
 
     if name == "iniciar_configuracao_second_brain":
         return (
@@ -1273,6 +1397,64 @@ def execute_tool(name: str, tool_input: dict) -> str:
 
     if name == "ver_camera":
         return camera_vision.describe_scene()
+
+    if name == "registrar_pessoa":
+        person_id = db.add_person(tool_input["nome"], tool_input.get("relacao"), tool_input.get("aniversario"), tool_input.get("notas"))
+        return f"'{tool_input['nome']}' guardado(a) (#{person_id})."
+
+    if name == "listar_pessoas":
+        pessoas = db.list_people()
+        if not pessoas:
+            return "Nenhuma pessoa guardada ainda."
+        partes = []
+        for p in pessoas:
+            info = p["nome"]
+            if p.get("relacao"):
+                info += f" ({p['relacao']})"
+            if p.get("aniversario"):
+                info += f" — aniversário: {p['aniversario']}"
+            partes.append(info)
+        return "\n".join(partes)
+
+    if name == "registrar_progresso_meta":
+        memory_id = db.find_or_create_goal(tool_input["meta"])
+        db.add_goal_progress(memory_id, tool_input.get("valor"), tool_input.get("nota"))
+        return f"Progresso registrado em '{tool_input['meta']}'."
+
+    if name == "criar_rotina":
+        passos = tool_input["passos"]
+        nao_permitidos = [p["ferramenta"] for p in passos if p["ferramenta"] not in ROTINA_TOOLS_PERMITIDAS]
+        if nao_permitidos:
+            return (
+                f"Não posso incluir {', '.join(nao_permitidos)} numa rotina — só tools de leitura "
+                f"e controle de dispositivo de casa podem ser encadeadas assim, coisas que criam/"
+                f"editam/apagam sempre precisam de confirmação na hora."
+            )
+        db.add_routine(tool_input["nome"], passos)
+        return f"Rotina '{tool_input['nome']}' cadastrada com {len(passos)} passo(s)."
+
+    if name == "executar_rotina":
+        rotina = db.get_routine(tool_input["nome"])
+        if not rotina:
+            return f"Rotina '{tool_input['nome']}' não encontrada. Use `listar_rotinas` pra ver as cadastradas."
+        resultados = []
+        for passo in rotina["passos"]:
+            try:
+                resultado = execute_tool(passo["ferramenta"], passo.get("argumentos", {}))
+                resultados.append(f"[{passo['ferramenta']}] {resultado}")
+            except Exception as e:
+                resultados.append(f"[{passo['ferramenta']}] Falhou: {e}")
+        return "\n".join(resultados)
+
+    if name == "listar_rotinas":
+        rotinas = db.list_routines()
+        if not rotinas:
+            return "Nenhuma rotina cadastrada ainda."
+        partes = []
+        for r in rotinas:
+            passos_txt = " → ".join(p["ferramenta"] for p in r["passos"])
+            partes.append(f"'{r['nome']}': {passos_txt}")
+        return "\n".join(partes)
 
     return f"Ferramenta desconhecida: {name}"
 

@@ -184,6 +184,43 @@ def init_db():
 
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS people (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT NOT NULL,
+                relacao TEXT,
+                aniversario TEXT,
+                notas TEXT,
+                criado_em TEXT NOT NULL,
+                ultimo_lembrete_ano INTEGER
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS goal_progress (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                memory_id INTEGER NOT NULL,
+                valor REAL,
+                nota TEXT,
+                criado_em TEXT NOT NULL
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS routines (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nome TEXT NOT NULL UNIQUE,
+                passos TEXT NOT NULL,
+                criado_em TEXT NOT NULL
+            )
+            """
+        )
+
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 tipo TEXT NOT NULL,
@@ -723,6 +760,179 @@ def get_audit_entry(entry_id: int) -> dict | None:
 def mark_audit_entry_undone(entry_id: int) -> bool:
     with _connect() as conn:
         cursor = conn.execute("UPDATE audit_log SET desfeito = 1 WHERE id = ?", (entry_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+# ── Pessoas importantes e aniversários ────────────────────────────────
+def add_person(nome: str, relacao: str | None = None, aniversario: str | None = None, notas: str | None = None) -> int:
+    """`aniversario` aceita 'YYYY-MM-DD' (se souber o ano) ou só 'MM-DD' (se não souber)."""
+    with _connect() as conn:
+        cursor = conn.execute(
+            "INSERT INTO people (nome, relacao, aniversario, notas, criado_em) VALUES (?, ?, ?, ?, ?)",
+            (nome, relacao, aniversario, notas, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def list_people() -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM people ORDER BY nome").fetchall()
+        return [dict(r) for r in rows]
+
+
+def delete_person(person_id: int) -> bool:
+    with _connect() as conn:
+        cursor = conn.execute("DELETE FROM people WHERE id = ?", (person_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_people_needing_birthday_reminder(dias_de_antecedencia: int = 7) -> list[dict]:
+    """
+    Pessoas com aniversário dentro da janela de antecedência, que ainda
+    não foram lembradas ESSE ANO (`ultimo_lembrete_ano` != ano atual) —
+    isso permite lembrar de novo todo ano, sem repetir dentro do mesmo ano.
+    """
+    with _connect() as conn:
+        pessoas = conn.execute("SELECT * FROM people WHERE aniversario IS NOT NULL").fetchall()
+
+    hoje = datetime.now().date()
+    ano_atual = hoje.year
+    resultado = []
+
+    for p in pessoas:
+        p = dict(p)
+        if p["ultimo_lembrete_ano"] == ano_atual:
+            continue  # já lembrou esse ano
+
+        try:
+            partes = p["aniversario"].split("-")
+            mes, dia = int(partes[-2]), int(partes[-1])
+        except (ValueError, IndexError):
+            continue  # data mal formatada — ignora em vez de quebrar
+
+        try:
+            proximo_aniversario = datetime(ano_atual, mes, dia).date()
+        except ValueError:
+            continue  # data inválida (ex: 30 de fevereiro)
+
+        if proximo_aniversario < hoje:
+            proximo_aniversario = datetime(ano_atual + 1, mes, dia).date()
+
+        dias_ate = (proximo_aniversario - hoje).days
+        if 0 <= dias_ate <= dias_de_antecedencia:
+            p["dias_ate_aniversario"] = dias_ate
+            resultado.append(p)
+
+    return resultado
+
+
+def mark_birthday_reminded(person_id: int) -> None:
+    with _connect() as conn:
+        conn.execute("UPDATE people SET ultimo_lembrete_ano = ? WHERE id = ?", (datetime.now().year, person_id))
+        conn.commit()
+
+
+# ── Progresso de metas — pro gráfico ao longo do tempo ────────────────
+def find_or_create_goal(texto_meta: str, similarity_threshold: float = 0.4) -> int:
+    """
+    Encontra uma meta já existente (categoria 'metas') parecida com o
+    texto dado (comparação simples via difflib, biblioteca padrão — sem
+    dependência de NLP), ou cria uma nova se não achar nada parecido o
+    suficiente. Evita duplicar "correr 5km" e "correr cinco quilômetros"
+    como metas diferentes.
+    """
+    import difflib
+
+    with _connect() as conn:
+        metas = conn.execute("SELECT id, content FROM memories WHERE category = 'metas'").fetchall()
+
+    melhor_id = None
+    melhor_similaridade = 0.0
+    for m in metas:
+        similaridade = difflib.SequenceMatcher(None, texto_meta.lower(), m["content"].lower()).ratio()
+        if similaridade > melhor_similaridade:
+            melhor_similaridade = similaridade
+            melhor_id = m["id"]
+
+    if melhor_id is not None and melhor_similaridade >= similarity_threshold:
+        return melhor_id
+
+    return add_memory(texto_meta, "metas")
+
+
+def add_goal_progress(memory_id: int, valor: float | None = None, nota: str | None = None) -> int:
+    with _connect() as conn:
+        cursor = conn.execute(
+            "INSERT INTO goal_progress (memory_id, valor, nota, criado_em) VALUES (?, ?, ?, ?)",
+            (memory_id, valor, nota, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_goal_progress(memory_id: int) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM goal_progress WHERE memory_id = ? ORDER BY criado_em", (memory_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def list_goals_with_progress_count() -> list[dict]:
+    """Metas + quantos registros de progresso cada uma tem — pra saber quais já têm gráfico pra mostrar."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT m.id, m.content, COUNT(g.id) as total_registros
+            FROM memories m
+            LEFT JOIN goal_progress g ON g.memory_id = m.id
+            WHERE m.category = 'metas'
+            GROUP BY m.id
+            ORDER BY m.id DESC
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── Rotinas — sequência de ações encadeadas, disparadas por voz ─────────
+def add_routine(nome: str, passos: list[dict]) -> int:
+    with _connect() as conn:
+        cursor = conn.execute(
+            "INSERT INTO routines (nome, passos, criado_em) VALUES (?, ?, ?) "
+            "ON CONFLICT(nome) DO UPDATE SET passos = excluded.passos",
+            (nome, json.dumps(passos, ensure_ascii=False), datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_routine(nome: str) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM routines WHERE nome = ?", (nome,)).fetchone()
+        if not row:
+            return None
+        resultado = dict(row)
+        resultado["passos"] = json.loads(resultado["passos"])
+        return resultado
+
+
+def list_routines() -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM routines ORDER BY nome").fetchall()
+        resultado = []
+        for r in rows:
+            d = dict(r)
+            d["passos"] = json.loads(d["passos"])
+            resultado.append(d)
+        return resultado
+
+
+def delete_routine(nome: str) -> bool:
+    with _connect() as conn:
+        cursor = conn.execute("DELETE FROM routines WHERE nome = ?", (nome,))
         conn.commit()
         return cursor.rowcount > 0
 

@@ -3244,6 +3244,7 @@
       <div class="brain-editor-box">
         <strong>${escapeHtml(BRAIN_CATEGORIES[note.category]?.label || note.category)}</strong>
         <textarea id="brainEditContent">${escapeHtml(note.content)}</textarea>
+        <div id="brainGoalProgressWrap"></div>
         <div class="row">
           <button id="brainDeleteBtn" style="background:#3b1d1d;color:var(--red)">Excluir</button>
           <button id="brainCloseBtn" style="background:var(--panel-2);color:var(--text-dim)">Fechar</button>
@@ -3261,6 +3262,38 @@
         alert("Falha ao excluir: " + err.message);
       }
     });
+
+    if (note.category === "metas") {
+      loadGoalProgressChart(note.id, overlay.querySelector("#brainGoalProgressWrap"));
+    }
+  }
+
+  async function loadGoalProgressChart(memoryId, container) {
+    try {
+      const res = await fetch(`${serverUrl}/goals/${memoryId}/progress`, { headers: { "X-API-Key": apiKey } });
+      const data = await res.json();
+      const registros = (data.progress || []).filter((p) => p.valor !== null && p.valor !== undefined);
+      if (!registros.length) return;  // sem valores numéricos, não tem o que desenhar
+
+      const valores = registros.map((p) => p.valor);
+      const max = Math.max(...valores);
+      const min = Math.min(0, ...valores);
+      const W = 280, H = 90, PAD = 8;
+      const escalaX = (i) => PAD + (i / Math.max(registros.length - 1, 1)) * (W - PAD * 2);
+      const escalaY = (v) => H - PAD - ((v - min) / Math.max(max - min, 1)) * (H - PAD * 2);
+
+      const pontos = registros.map((p, i) => `${escalaX(i)},${escalaY(p.valor)}`).join(" ");
+      const ultimoValor = valores[valores.length - 1];
+
+      container.innerHTML = `
+        <label style="margin-top:10px;display:block;font-size:12px;color:var(--text-dim);">Progresso registrado (${registros.length})</label>
+        <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:90px;background:var(--panel-2);border-radius:8px;margin-top:4px;">
+          <polyline points="${pontos}" fill="none" stroke="var(--cyan)" stroke-width="2" />
+          ${registros.map((p, i) => `<circle cx="${escalaX(i)}" cy="${escalaY(p.valor)}" r="3" fill="var(--cyan)"><title>${escapeHtml(p.nota || '')} (${p.valor})</title></circle>`).join("")}
+        </svg>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:2px;">Último registro: ${ultimoValor}${registros[registros.length - 1].nota ? " — " + escapeHtml(registros[registros.length - 1].nota) : ""}</div>
+      `;
+    } catch (e) { /* sem gráfico não é crítico, só não mostra nada */ }
   }
 
   async function init() {
