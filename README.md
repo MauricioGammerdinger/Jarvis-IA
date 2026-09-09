@@ -183,6 +183,7 @@ jarvis-ia/
 │   ├── web_search.py                                    # Pesquisa na web (DuckDuckGo, grátis)
 │   ├── pdf_reader.py                                    # Leitura/extração de texto de PDF
 │   ├── focus_monitor.py                                 # Detecção de "travado" (opt-in, sem gravar em disco)
+│   ├── camera_vision.py                                 # Visão por câmera (descrição + check-in emocional, opt-in)
 │   ├── ai_tokens.py                                    # Dashboard de Tokens de IA (custo + cota)
 │   ├── wake_word_listener.py                   # "Hey JARVIS" — ativação por voz
 │   └── tray_app.py                               # Ícone na bandeja do sistema
@@ -261,6 +262,7 @@ na raiz do projeto, não dentro de `src/`.
 | `ler_pdf` | Extrai texto de um PDF pra discutir o conteúdo |
 | `iniciar_ditado_longo` | Ativa o modo de gravação longa (até 5min) por voz |
 | `ver_retrospectiva_semanal` | Resumo do que foi feito na semana, na hora |
+| `ver_camera` | Tira uma foto pela webcam e descreve o que vê |
 | `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
@@ -1595,6 +1597,67 @@ API — **testado com servidor real**: confirmei 52 tools sem nenhum uso
 do dashboard, subindo pra 59 automaticamente assim que cadastrei uma
 assinatura de teste. Se um dia você assinar algo pago, funciona sozinho,
 sem precisar mexer em nada.
+
+## Visão por câmera — leia com atenção antes de ligar
+
+Duas capacidades bem diferentes, com cuidados diferentes. **Em nenhuma
+das duas a imagem é salva em disco** — captura, analisa na memória,
+descarta. Nem uma imagem sequer fica gravada em lugar nenhum, nunca.
+
+### 1. "O que você está vendo" — sob pedido
+```
+"Hey JARVIS, o que você está vendo?"
+```
+Precisa de um modelo com visão configurado — o `qwen3`/`gemma` que você
+já usa pra texto **não enxergam imagem**, é um modelo separado. Um bom
+candidato leve é o `moondream` (`ollama pull moondream`). O instalador
+(`setup.ps1`) já pergunta se você quer baixar e configurar isso
+automaticamente — se pulou na hora, faça manualmente. No `.env`:
+```
+JARVIS_VISION_MODEL=moondream
+```
+**Testado**: a integração multimodal (formato da chamada, modelo
+separado do de texto) com mock, e os 3 cenários de `describe_scene`
+(sucesso, sem modelo configurado, sem câmera disponível). **Não
+testado**: a qualidade real da descrição — isso depende inteiramente do
+modelo de visão que você escolher rodar.
+
+### 2. Check-in emocional — DESLIGADO por padrão, leia antes de ligar
+⚠️ Essa é a funcionalidade mais sensível do projeto inteiro. Antes de
+ligar (`JARVIS_EMOTION_CHECK_ENABLED=1`), alguns pontos sem enrolação:
+
+- **Detecção de emoção por expressão facial é conhecidamente imprecisa.**
+  Rosto cansado, concentrado, ou só sério na tela vira "triste" com
+  facilidade — isso é documentado amplamente na literatura de pesquisa
+  sobre o tema, não é peculiaridade dessa implementação.
+- **Por isso, o JARVIS NUNCA afirma um diagnóstico.** Ele nunca diz
+  "você está triste" — só pergunta com cuidado, tipo "faz um tempo que
+  não conversamos direito, como você está?", e só depois de várias
+  leituras seguidas seguirem negativas (nunca reage a uma foto só —
+  isso seria ruído, não sinal real).
+- **A pergunta fica de verdade na conversa** (sessão de voz), não é só
+  um aviso solto — quando você responder, o JARVIS tem contexto de que
+  foi ele mesmo que perguntou, e consegue conversar de verdade, sem
+  mencionar câmera ou análise nenhuma. Instrução explícita no prompt:
+  nunca insistir se você não quiser falar sobre isso.
+- **Isso liga a câmera de tempos em tempos sozinho** (a cada
+  `JARVIS_EMOTION_CHECK_INTERVAL_MINUTES`, padrão 30min). Pense se isso
+  é algo que você quer de verdade rodando na sua casa antes de ligar.
+
+Usa a biblioteca `deepface` (modelo já publicado e amplamente usado —
+não é algo que eu treinei ou posso validar a fundo).
+
+**Testado de verdade**: a lógica de decisão (a parte que É minha
+responsabilidade) nos cenários mais importantes — uma leitura negativa
+isolada nunca dispara nada; só depois de 3 seguidas dispara; não repete
+pergunta na mesma sequência; mas pergunta de novo se melhorar e piorar
+depois. Também confirmei que o download real dos pesos do modelo
+funciona (o GitHub não estava bloqueado no ambiente onde escrevi isso,
+diferente do HuggingFace) e que o caso de "nenhum rosto no frame" é
+tratado sem quebrar. **Não pude testar**: a precisão real da detecção
+com um rosto humano de verdade — isso depende inteiramente da
+biblioteca de terceiros, e de como ela se comporta com o seu rosto, sua
+iluminação, sua webcam.
 
 ## Fine-tuning — dando personalidade própria ao modelo
 

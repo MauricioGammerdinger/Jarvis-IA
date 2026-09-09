@@ -95,6 +95,14 @@ AGENTS_REGISTRY = {
         "run_path": None,  # não faz sentido "forçar" — é uma checagem de estado momentâneo
         "arquivo": "memória do processo (nunca grava em disco)",
     },
+    "emotion_check": {
+        "nome": "Check-in Emocional",
+        "icon": "💬",
+        "faz": "Pergunta como você está se detectar sinal sustentado (opt-in, desligado por padrão).",
+        "every_min": 30,
+        "run_path": None,
+        "arquivo": "câmera (nunca salva imagem em disco)",
+    },
 }
 
 
@@ -125,6 +133,9 @@ def _agent_is_configured(agent_id: str) -> bool:
         if agent_id == "focus_monitor":
             import focus_monitor as fm
             return fm.FOCUS_MONITOR_ENABLED
+        if agent_id == "emotion_check":
+            import camera_vision as cam
+            return cam.EMOTION_CHECK_ENABLED
     except Exception:
         return False
     return True
@@ -486,6 +497,57 @@ def run_focus_monitor_job() -> None:
         db.record_agent_run("focus_monitor", "ok", "Monitorando", "")
 
 
+def run_emotion_check_job() -> None:
+    """
+    Check-in emocional por câmera — desligado por padrão (opt-in via
+    JARVIS_EMOTION_CHECK_ENABLED=1 no .env). Só age depois de várias
+    leituras seguidas indicando algo negativo (nunca uma foto só — isso
+    seria ruído, não sinal real). A pergunta é injetada DE VERDADE na
+    conversa (sessão "voz"), não só um aviso solto — assim, quando a
+    pessoa responder, o JARVIS tem contexto de que foi ele mesmo que
+    perguntou, e consegue continuar a conversa naturalmente.
+
+    A frase NUNCA afirma um diagnóstico ("você está triste") — sempre uma
+    pergunta aberta e cuidadosa, porque detecção de emoção por expressão
+    facial é conhecidamente imprecisa (rosto cansado/concentrado vira
+    "triste" com facilidade).
+    """
+    import database as db
+    import camera_vision as cam
+
+    if not cam.EMOTION_CHECK_ENABLED:
+        return
+
+    resultado = cam.analyze_emotion_now()
+    if not resultado["ok"]:
+        db.record_agent_run("emotion_check", "ok", resultado["motivo"], "")
+        return
+
+    deve_perguntar = cam.register_reading_and_check(resultado["emocao_dominante"], resultado["negativa"])
+    if not deve_perguntar:
+        db.record_agent_run("emotion_check", "ok", f"Lendo — última leitura: {resultado['emocao_dominante']}", "")
+        return
+
+    try:
+        import llm_client
+
+        system = (
+            "Gere UMA frase curta e calorosa, verificando com cuidado como a pessoa está, sem "
+            "afirmar nenhum diagnóstico ou nomear uma emoção específica dela. Nunca diga "
+            "'você parece triste' ou similar — é intrusivo e pode estar errado. Algo mais no "
+            "estilo 'Faz um tempo que não paramos pra conversar — como você está?'. Responda só a frase."
+        )
+        result = llm_client.chat(messages=[{"role": "user", "content": "gerar pergunta de check-in"}], tools=[], system=system)
+        pergunta = result["text"].strip() or "Faz um tempo que não conversamos direito — como você está?"
+    except Exception:
+        pergunta = "Faz um tempo que não conversamos direito — como você está?"
+
+    # Injeta na conversa de verdade (sessão "voz") — não só um toast solto.
+    db.append_message("voz", "assistant", pergunta)
+    db.create_notification("emocional", "💬 Um oi rapidinho", pergunta)
+    db.record_agent_run("emotion_check", "ok", "Check-in enviado, injetado na conversa", "")
+
+
 _scheduler: BackgroundScheduler | None = None
 
 
@@ -505,6 +567,8 @@ def start_scheduler() -> BackgroundScheduler:
     _scheduler.add_job(run_machine_sync_job, "interval", minutes=10, id="machine_sync", next_run_time=now)
     _scheduler.add_job(run_weekly_retrospective_job, "interval", hours=12, id="weekly_retrospective_check", next_run_time=now)
     _scheduler.add_job(run_focus_monitor_job, "interval", minutes=3, id="focus_monitor", next_run_time=now)
+    import camera_vision as _cam_config
+    _scheduler.add_job(run_emotion_check_job, "interval", minutes=_cam_config.EMOTION_CHECK_INTERVAL_MINUTES, id="emotion_check", next_run_time=now)
     _scheduler.start()
     return _scheduler
 

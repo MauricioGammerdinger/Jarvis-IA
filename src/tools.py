@@ -24,6 +24,7 @@ from PIL import Image, ImageGrab
 
 import ai_tokens
 import background_agents
+import camera_vision
 import calendar_hub
 import code_editor
 import git_projects
@@ -845,6 +846,11 @@ TOOLS = [
         "description": "Gera a retrospectiva da semana agora (o que foi concluído, metas mencionadas, commits) — sem esperar o ciclo automático.",
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "ver_camera",
+        "description": "Tira uma foto pela webcam agora e descreve o que vê. USE quando o usuário perguntar algo como 'o que você está vendo', 'como eu estou' (aparência), ou pedir pra você olhar pela câmera.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -1264,6 +1270,9 @@ def execute_tool(name: str, tool_input: dict) -> str:
 
     if name == "ver_retrospectiva_semanal":
         return background_agents.run_weekly_retrospective_job(forcar=True)
+
+    if name == "ver_camera":
+        return camera_vision.describe_scene()
 
     return f"Ferramenta desconhecida: {name}"
 

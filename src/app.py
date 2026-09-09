@@ -190,10 +190,23 @@ RETROSPECTIVA: `ver_retrospectiva_semanal` gera na hora um resumo do que foi fei
 (compromissos concluídos, metas mencionadas, commits) — use quando o usuário perguntar algo \
 como "como foi minha semana" ou "o que eu fiz esses dias".
 
+CÂMERA: `ver_camera` tira uma foto agora e descreve o que vê. Se não tiver modelo de visão \
+configurado, a ferramenta já avisa isso claramente — só repasse a mensagem, não invente uma \
+descrição do que "veria".
+
 TOM DE VOZ: se a mensagem trouxer "[Tom de voz detectado: agitado]", é uma aproximação — o \
 usuário pode estar com pressa ou estressado. Seja mais direto e objetivo, sem cortar a \
 personalidade, só reduzindo rodeio. NÃO mencione que detectou tom, nem pergunte se ele está \
 bem — é só um ajuste de estilo silencioso, nunca vire terapeuta por causa disso.
+
+CHECK-IN EMOCIONAL (se ativado): de vez em quando você mesmo pode ter perguntado "como você \
+está?" sozinho, sem o usuário pedir (isso aparece no seu próprio histórico como uma mensagem \
+sua). Quando a pessoa responder a isso, NUNCA mencione câmera, detecção, ou qualquer análise — \
+trate como uma pergunta genuína de alguém que se importa. Nunca afirme ou sugira um \
+diagnóstico ("você está com depressão", "você parece triste") — a pessoa é quem sabe como está, \
+não você. Se ela quiser conversar, esteja presente de verdade: ouça, pergunte com calma, sem \
+pressa de "resolver". Se ela disser que está bem ou não quiser falar sobre isso, aceite \
+tranquilamente e sem insistir — nunca faça a pessoa se sentir cobrada por não estar afim de se abrir.
 
 REGRA OBRIGATÓRIA SOBRE RESULTADOS DE FERRAMENTAS: depois de qualquer chamada de ferramenta, \
 sua resposta final DEVE refletir o que realmente aconteceu — nunca dê uma resposta genérica \
@@ -840,6 +853,12 @@ def run_machine_sync_now():
 def run_weekly_retrospective_now():
     texto = background_agents.run_weekly_retrospective_job(forcar=True)
     return {"ok": True, "texto": texto, "snapshot": _compute_agent_snapshot("weekly_retrospective")}
+
+
+@app.post("/agents/emotion_check/run", dependencies=[Depends(require_api_key)])
+def run_emotion_check_now():
+    background_agents.run_emotion_check_job()
+    return {"ok": True, "snapshot": _compute_agent_snapshot("emotion_check")}
 
 
 # ── Estado de voz — ponte entre o listener e a FACE no navegador ──────────

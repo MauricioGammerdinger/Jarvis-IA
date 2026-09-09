@@ -26,4 +26,7 @@ apscheduler>=3.10.0
 ddgs>=9.0.0
 pypdf>=5.0.0
 piper-tts>=1.3.0  # opcional — só necessário se JARVIS_TTS_ENGINE=piper no .env
+opencv-python-headless>=4.8.0  # opcional — só necessário pra usar a câmera (ver_camera / check-in emocional)
+deepface>=0.0.93  # opcional — só necessário se JARVIS_EMOTION_CHECK_ENABLED=1 no .env
+tf-keras>=2.15.0  # opcional — dependência do deepface
 pywin32>=306; sys_platform == "win32"

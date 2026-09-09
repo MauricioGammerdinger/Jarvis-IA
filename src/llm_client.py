@@ -183,3 +183,27 @@ def chat_stream(messages: list[dict], tools: list[dict], system: str):
 
     if buffer and not in_think:
         yield buffer
+
+
+def chat_with_vision(vision_model: str, base64_image: str, prompt: str) -> str:
+    """
+    Chamada simples pra um modelo COM VISÃO — separado do modelo de texto
+    principal (qwen3/gemma configurados em JARVIS_MODEL não enxergam
+    imagem). Usa o mesmo endpoint local do Ollama, só troca o nome do
+    modelo e usa o formato multimodal (content como lista, com bloco de
+    imagem em base64) — é o mesmo padrão que a API da OpenAI usa, e o
+    Ollama já é compatível com ele.
+    """
+    response = client.chat.completions.create(
+        model=vision_model,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
+                ],
+            }
+        ],
+    )
+    return response.choices[0].message.content or ""

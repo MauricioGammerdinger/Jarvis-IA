@@ -132,6 +132,23 @@ if (-not (Test-Path "$ProjectDir\.env")) {
         } else {
             Write-Host "Pulado. Rode 'ollama pull $RecommendedModel' manualmente antes de usar o JARVIS." -ForegroundColor Gray
         }
+
+        # Visão por câmera é opcional — só pergunta, nunca força. O
+        # modelo de texto principal não enxerga imagem, por isso é
+        # sempre um modelo separado, só baixado se a pessoa quiser.
+        Write-Host "`n     Recurso opcional: câmera (o JARVIS pode descrever o que vê pela" -ForegroundColor Gray
+        Write-Host "     webcam, sob pedido) — precisa de um modelo de visão separado (~1.8GB)." -ForegroundColor Gray
+        $baixarVisao = Read-Host "Baixar o modelo de visão 'moondream' agora? (s/n)"
+        if ($baixarVisao -eq "s") {
+            Write-Host "Baixando moondream — acompanhe o progresso abaixo..." -ForegroundColor Yellow
+            & ollama pull moondream
+            $envContent = Get-Content "$ProjectDir\.env" -Raw
+            $envContent = $envContent -replace 'JARVIS_VISION_MODEL=.*', 'JARVIS_VISION_MODEL=moondream'
+            Set-Content -Path "$ProjectDir\.env" -Value $envContent -NoNewline
+            Write-Host "     -> .env atualizado com JARVIS_VISION_MODEL=moondream" -ForegroundColor Green
+        } else {
+            Write-Host "     Pulado. Sem problema — o recurso só fica indisponível até você configurar depois." -ForegroundColor Gray
+        }
     }
 } else {
     Write-Host "`n[3/5] .env já existe, mantendo suas configurações atuais." -ForegroundColor Yellow
