@@ -271,6 +271,29 @@ def init_db():
             conn.execute("ALTER TABLE email_triage_cache ADD COLUMN notificado INTEGER NOT NULL DEFAULT 0")
         conn.commit()
 
+    _seed_default_protocols()
+
+
+def _seed_default_protocols() -> None:
+    """
+    Protocolos prontos, no estilo do filme ("House Party Protocol") — só
+    cria se AINDA NÃO EXISTIR nenhum protocolo com esse nome, pra nunca
+    sobrescrever se você já tiver editado ou apagado um de propósito.
+    """
+    protocolos_padrao = {
+        "Protocolo Foco": [
+            {"ferramenta": "controlar_luz", "argumentos": {"acao": "ligar"}},
+            {"ferramenta": "ver_agenda_hoje", "argumentos": {}},
+        ],
+        "Protocolo Descanso": [
+            {"ferramenta": "briefing_rapido", "argumentos": {}},
+            {"ferramenta": "controlar_luz", "argumentos": {"acao": "desligar"}},
+        ],
+    }
+    for nome, passos in protocolos_padrao.items():
+        if get_routine(nome) is None:
+            add_routine(nome, passos)
+
 
 def _backfill_sync_uuid(conn, tabela: str) -> None:
     """

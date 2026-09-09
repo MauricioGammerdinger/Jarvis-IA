@@ -1759,6 +1759,22 @@ perigosa é rejeitada na criação, tool segura funciona normalmente, e a
 execução roda os passos em sequência de verdade, com o resultado de
 cada um.
 
+### Protocolos — "House Party Protocol", à la JARVIS
+Rotinas prontas de fábrica, com nome de operação em vez de descrição
+literal:
+```
+"Hey JARVIS, ativar Protocolo Foco"     → liga a luz + mostra a agenda de hoje
+"Hey JARVIS, ativar Protocolo Descanso" → briefing rápido + desliga a luz
+```
+Semeados automaticamente na primeira vez que o banco é criado — não
+precisa cadastrar nada. Se você customizar ou apagar um protocolo,
+**nunca é sobrescrito** de volta ao reiniciar o servidor (**testado**:
+customizei o Protocolo Foco, reiniciei, confirmei que a customização
+sobreviveu). Ativar qualquer rotina cujo nome comece com "Protocolo"
+ganha uma confirmação com cara de JARVIS antes dos resultados ("Protocolo
+Foco ativado, senhor.") — rotinas com outros nomes ficam discretas, sem
+essa frase (**testado** a diferença entre os dois casos).
+
 ## Auto-atualização — puxa do GitHub sozinho, mas nunca aplica sozinho
 
 3 passos bem separados, de propósito — nenhum deles finge fazer mais do

@@ -1497,6 +1497,8 @@ def execute_tool(name: str, tool_input: dict) -> str:
         if not rotina:
             return f"Rotina '{tool_input['nome']}' não encontrada. Use `listar_rotinas` pra ver as cadastradas."
         resultados = []
+        if rotina["nome"].lower().startswith("protocolo"):
+            resultados.append(f"{rotina['nome']} ativado, senhor.")
         for passo in rotina["passos"]:
             try:
                 resultado = execute_tool(passo["ferramenta"], passo.get("argumentos", {}))
