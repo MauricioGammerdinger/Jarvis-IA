@@ -12,6 +12,17 @@ em vez de depender só do system prompt pra isso.
 - ❌ **Não** fica mais inteligente que o `gemma4` original — a capacidade de
   raciocínio de base continua a mesma, isso só ajusta o estilo
 
+## Você não precisa treinar nada pra já sentir alguma diferença
+
+O system prompt principal (`src/app.py`) agora já inclui 4 exemplos deste
+mesmo dataset como referência direta de tom (few-shot) — então mesmo sem
+rodar o treino, o modelo já tem uma âncora mais forte de personalidade
+do que só o adjetivo solto de antes ("educado, formal..."). O
+fine-tuning continua valendo a pena pra uma consistência ainda maior
+(esses 4 exemplos competem por atenção com o resto do prompt gigante,
+enquanto o fine-tuning grava o estilo no próprio modelo), mas não é
+mais tudo-ou-nada.
+
 ## Requisitos
 - GPU NVIDIA com pelo menos 8GB de VRAM (a variante `gemma-4-E4B` usada aqui
   cabe em GPUs desse porte, como a RTX 5050, usando QLoRA)
@@ -28,7 +39,7 @@ pip install -r requirements.txt
 ```
 
 ### 2. Adicionar seus próprios exemplos
-O dataset já vem com 20 exemplos iniciais (`dataset.jsonl`), mas quanto mais
+O dataset já vem com **42 exemplos** iniciais (`dataset.jsonl`), mas quanto mais
 exemplos SEUS, mais a personalidade fica do jeito que você quer. Use a
 ferramenta interativa:
 ```bash
@@ -74,8 +85,8 @@ notar a diferença de personalidade.
 Este ambiente de desenvolvimento **não tem GPU** — não foi possível rodar
 o treino de verdade, nem baixar o modelo base, durante a criação disso. O
 que testei de verdade:
-- O formato do `dataset.jsonl` (JSON válido, estrutura correta) — 20 exemplos
-  validados
+- O formato do `dataset.jsonl` (JSON válido, estrutura correta) — 42 exemplos
+  validados (revalidado depois de mais exemplos serem adicionados)
 - A ferramenta `add_example.py` — testei adicionando um exemplo de verdade
   e conferindo que salvou certo
 - A sintaxe dos scripts `train.py` e `export_to_ollama.py`

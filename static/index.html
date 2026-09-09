@@ -3319,8 +3319,30 @@
     } catch (e) { /* falha silenciosa — tenta de novo no próximo ciclo */ }
   }
 
+  // ── Estado de voz — sincroniza a FACE com o que o listener de voz está
+  // fazendo de verdade (ouvindo/processando/falando), não só com o chat
+  // pelo navegador. Nomes do backend são em português; a FACE usa inglês.
+  const VOICE_STATE_MAP = { idle: "idle", ouvindo: "listening", processando: "thinking", falando: "speaking" };
+  let ultimoEstadoVozAplicado = null;
+
+  async function checkVoiceState() {
+    if (!apiKey) return;
+    try {
+      const res = await fetch(serverUrl + "/voice-state", { headers: { "X-API-Key": apiKey } });
+      const data = await res.json();
+      const estadoMapeado = VOICE_STATE_MAP[data.estado] || "idle";
+      if (estadoMapeado === ultimoEstadoVozAplicado) return;  // não repete à toa
+      ultimoEstadoVozAplicado = estadoMapeado;
+      if (Array.isArray(window._orbSetters)) {
+        window._orbSetters.forEach((fn) => fn(estadoMapeado));
+      }
+    } catch (e) { /* falha silenciosa — tenta de novo no próximo ciclo */ }
+  }
+
   checkProactiveNotifications();
   setInterval(checkProactiveNotifications, 25000);
+  checkVoiceState();
+  setInterval(checkVoiceState, 1500);  // rápido o bastante pra sincronizar sem parecer atrasado
 })();
 </script>
 

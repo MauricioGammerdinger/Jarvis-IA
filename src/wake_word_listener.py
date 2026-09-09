@@ -52,6 +52,16 @@ DICTATION_MAX_WAIT_SECONDS = float(os.environ.get("JARVIS_DICTATION_MAX_WAIT", "
 DICTATION_TRAILING_SILENCE_SECONDS = float(os.environ.get("JARVIS_DICTATION_TRAILING_SILENCE", "2.5"))
 DICTATION_MAX_SECONDS = float(os.environ.get("JARVIS_DICTATION_MAX_SECONDS", "300"))
 
+# Interromper o JARVIS enquanto ele fala — DESLIGADO por padrão (opt-in),
+# porque sem headset o próprio áudio saindo da caixa de som pode ser
+# captado pelo microfone e confundido com "o usuário interrompendo"
+# (eco/feedback). Limiar de energia mais alto que o VAD normal, de
+# propósito, pra reduzir esse falso positivo — mesmo assim, funciona
+# bem melhor com headset do que com caixa de som + microfone separados.
+INTERRUPT_ENABLED = os.environ.get("JARVIS_INTERRUPT_ENABLED", "0") == "1"
+INTERRUPT_ENERGY_THRESHOLD = float(os.environ.get("JARVIS_INTERRUPT_THRESHOLD", "1800"))
+INTERRUPT_GRACE_PERIOD_SECONDS = 0.3  # não checa logo no início, evita pop/click do começo do áudio
+
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 1280  # 80ms — tamanho de frame que o openWakeWord espera
 
@@ -238,13 +248,84 @@ def send_to_jarvis(audio_wav: bytes) -> dict:
     return resp.json()
 
 
+def report_voice_state(estado: str) -> None:
+    """Avisa o servidor em que estado o listener está (idle/ouvindo/processando/falando) — é isso que sincroniza a FACE no navegador com o que está acontecendo de verdade. Nunca lança exceção — se falhar, só não sincroniza dessa vez, não trava o listener por causa disso."""
+    try:
+        httpx.post(f"{JARVIS_API_URL}/voice-state", headers=HEADERS, data={"estado": estado}, timeout=3)
+    except Exception:
+        pass
+
+
 def speak(text: str) -> None:
     """Pede pro servidor sintetizar o texto em áudio (TTS) e toca."""
+    report_voice_state("falando")
     resp = httpx.post(f"{JARVIS_API_URL}/tts", headers=HEADERS, data={"text": text}, timeout=30)
     if resp.status_code == 200:
         play_audio_bytes(resp.content)
     else:
         print(f"[jarvis] Falha no TTS ({resp.status_code}): {resp.text}")
+    report_voice_state("idle")
+
+
+def _estimate_wav_duration(wav_bytes: bytes) -> float:
+    """Duração do WAV em segundos — usado pra saber quanto tempo escutar por interrupção. Chute seguro (5s) se não conseguir ler."""
+    try:
+        with wave.open(io.BytesIO(wav_bytes)) as wf:
+            return wf.getnframes() / wf.getframerate()
+    except Exception:
+        return 5.0
+
+
+def speak_interruptible(text: str, device=None) -> list | None:
+    """
+    Toca a resposta falada, mas ouve ENQUANTO fala (só se
+    `INTERRUPT_ENABLED`) — se detectar energia acima do limiar de
+    interrupção, para a fala na hora e começa a capturar o que a pessoa
+    está dizendo. Devolve os frames capturados se foi interrompido, ou
+    None se a fala terminou normalmente (sem interrupção, ou em sistemas
+    sem suporte a isso — nesse caso cai pro `speak()` normal, bloqueante).
+    """
+    report_voice_state("falando")
+    resp = httpx.post(f"{JARVIS_API_URL}/tts", headers=HEADERS, data={"text": text}, timeout=30)
+    if resp.status_code != 200:
+        print(f"[jarvis] Falha no TTS ({resp.status_code}): {resp.text}")
+        report_voice_state("idle")
+        return None
+
+    if sys.platform != "win32" or not INTERRUPT_ENABLED:
+        play_audio_bytes(resp.content)
+        report_voice_state("idle")
+        return None
+
+    import winsound
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        f.write(resp.content)
+        temp_path = f.name
+
+    try:
+        duracao = _estimate_wav_duration(resp.content)
+        winsound.PlaySound(temp_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+        inicio = time.time()
+
+        while time.time() - inicio < duracao:
+            if time.time() - inicio < INTERRUPT_GRACE_PERIOD_SECONDS:
+                time.sleep(0.05)
+                continue
+            chunk = _read_chunk_blocking(device)
+            if _rms_energy(chunk) > INTERRUPT_ENERGY_THRESHOLD:
+                winsound.PlaySound(None, winsound.SND_PURGE)
+                print("[jarvis] Interrompido — ouvindo o que você está dizendo...")
+                report_voice_state("ouvindo")
+                frames_restantes = _capture_utterance_frames(lambda: _read_chunk_blocking(device))
+                return [chunk] + (frames_restantes or [])
+        return None
+    finally:
+        try:
+            os.unlink(temp_path)
+        except FileNotFoundError:
+            pass
+        report_voice_state("idle")
 
 
 def _read_chunk_blocking(device) -> np.ndarray:
@@ -257,18 +338,22 @@ def _read_chunk_blocking(device) -> np.ndarray:
 def handle_wake_word_detected(device=None) -> None:
     print("[jarvis] 'Hey JARVIS' detectado! Ouvindo seu comando...")
     beep_ack()
+    report_voice_state("ouvindo")
     audio = record_command(RECORD_SECONDS)
     print("[jarvis] Processando...")
+    report_voice_state("processando")
     try:
         resposta = send_to_jarvis(audio)
         reply = resposta["reply"]
         print(f"[jarvis] Resposta: {reply}")
-        speak(reply)
+        speak(reply)  # já reporta 'falando' -> 'idle' sozinho
     except httpx.HTTPStatusError as e:
         print(f"[jarvis] Erro do servidor: {e}")
+        report_voice_state("idle")
         return
     except httpx.RequestError as e:
         print(f"[jarvis] Falha de conexão — o servidor JARVIS está rodando? {e}")
+        report_voice_state("idle")
         return
 
     if resposta.get("iniciar_ditado"):
@@ -286,23 +371,40 @@ def run_conversation_mode(device=None) -> None:
     escuta da wake word estar rodando ao mesmo tempo — importante porque,
     nesse momento, estamos dentro da própria chamada que a wake word
     disparou, então o callback dela está pausado.
+
+    Se `INTERRUPT_ENABLED`, a fala do JARVIS pode ser interrompida — nesse
+    caso, os frames capturados durante a interrupção já viram o PRÓXIMO
+    turno direto, sem precisar esperar de novo (a pessoa já estava
+    falando, não faz sentido descartar isso e pedir pra repetir).
     """
+    frames_de_interrupcao = None
     while True:
-        print("[jarvis] (modo de conversa — pode continuar falando, sem 'Hey JARVIS')")
-        frames = _capture_utterance_frames(lambda: _read_chunk_blocking(device))
-        if frames is None:
-            print("[jarvis] Silêncio — voltando a escutar por 'Hey JARVIS'.")
-            return
+        if frames_de_interrupcao is not None:
+            frames = frames_de_interrupcao
+            frames_de_interrupcao = None
+        else:
+            print("[jarvis] (modo de conversa — pode continuar falando, sem 'Hey JARVIS')")
+            report_voice_state("ouvindo")
+            frames = _capture_utterance_frames(lambda: _read_chunk_blocking(device))
+            if frames is None:
+                print("[jarvis] Silêncio — voltando a escutar por 'Hey JARVIS'.")
+                report_voice_state("idle")
+                return
 
         audio_wav = _frames_to_wav_bytes(frames)
         print("[jarvis] Processando resposta de acompanhamento...")
+        report_voice_state("processando")
         try:
             resposta = send_to_jarvis(audio_wav)
             reply = resposta["reply"]
             print(f"[jarvis] Resposta: {reply}")
-            speak(reply)
+            if INTERRUPT_ENABLED:
+                frames_de_interrupcao = speak_interruptible(reply, device)
+            else:
+                speak(reply)
         except (httpx.HTTPStatusError, httpx.RequestError) as e:
             print(f"[jarvis] Falha ao processar acompanhamento: {e}")
+            report_voice_state("idle")
             return
 
         if resposta.get("iniciar_ditado"):
@@ -319,6 +421,7 @@ def run_dictation_mode(device=None) -> None:
     exatamente o tipo de reaproveitamento que já foi testado a fundo ali.
     """
     print("[jarvis] (modo de ditado — pode falar um texto longo, aviso quando parar de ouvir)")
+    report_voice_state("ouvindo")
     frames = _capture_utterance_frames(
         lambda: _read_chunk_blocking(device),
         max_wait_seconds=DICTATION_MAX_WAIT_SECONDS,
@@ -332,6 +435,7 @@ def run_dictation_mode(device=None) -> None:
 
     audio_wav = _frames_to_wav_bytes(frames)
     print("[jarvis] Processando o texto ditado...")
+    report_voice_state("processando")
     try:
         resposta = send_to_jarvis(audio_wav)
         reply = resposta["reply"]
@@ -339,6 +443,7 @@ def run_dictation_mode(device=None) -> None:
         speak(reply)
     except (httpx.HTTPStatusError, httpx.RequestError) as e:
         print(f"[jarvis] Falha ao processar o ditado: {e}")
+        report_voice_state("idle")
 
 
 def main():

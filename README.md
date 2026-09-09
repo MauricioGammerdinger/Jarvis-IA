@@ -1459,6 +1459,143 @@ E ativo avisa certo (com o título e os minutos corretos); não repete o
 aviso pra mesma sessão de foco; não avisa se a pessoa ficou parada (saiu
 do lugar); e trocar de janela reseta a contagem do zero.
 
+## Voz e interação — FACE sincronizada, tom de voz, interrupção
+
+### FACE sincronizada com o estado real
+**Achado ao mexer nisso**: a FACE já tinha os 4 estados definidos
+(ONLINE/OUVINDO/PROCESSANDO/FALANDO) e uma função `setFaceState()`
+pronta — mas ela **nunca era chamada em lugar nenhum**. A FACE nunca
+refletiu atividade real, nem do chat pelo navegador, muito menos do
+listener de voz (que é um processo Python totalmente separado do
+navegador). Agora o listener reporta seu estado real a cada transição
+(`ouvindo`/`processando`/`falando`/`idle`) numa tabelinha do banco, e a
+página consulta isso a cada 1.5s.
+- **Testado na interface de verdade** com Playwright: mudei o estado via
+  API simulando o listener, e a FACE mudou sozinha de "ONLINE" pra
+  "OUVINDO" — não só testei a lógica isolada, vi acontecer na tela
+- Proteção contra ficar travada: se o listener cair no meio de "falando"
+  e nunca mais atualizar, depois de 30s sem novidade a FACE volta
+  sozinha pro idle, em vez de ficar presa num estado errado pra sempre
+
+### Tom de voz — leia antes de confiar demais nisso
+**Isso NÃO é detecção de emoção.** É uma aproximação bem simples por
+energia do áudio (alto/baixo) e velocidade de fala (rápido/devagar) —
+sem nenhum modelo treinado pra reconhecer emoção de verdade. Serve só
+como uma dica leve pro JARVIS ser mais direto quando parecer que você
+está com pressa; ele nunca comenta sobre isso nem vira terapeuta por
+causa disso (instrução explícita no prompt pra isso nunca acontecer).
+**Testado** nos 3 cenários (alto+rápido = "agitado", baixo+devagar =
+"calmo", misto = "neutro"), e no caso de áudio inválido (nunca quebra,
+assume neutro).
+
+### Interromper o JARVIS enquanto ele fala
+⚠️ **Desligado por padrão** (`JARVIS_INTERRUPT_ENABLED=0`). Se ligar,
+você pode começar a falar por cima da resposta do JARVIS que ele para
+na hora e escuta o que você está dizendo — igual conversa de verdade.
+
+**O risco real, sem enrolação**: sem headset, o próprio áudio do JARVIS
+saindo da caixa de som pode ser captado pelo microfone e confundido com
+"você interrompendo" (eco/feedback acústico). O limiar de energia pra
+considerar interrupção é mais alto que o do modo de conversa normal, de
+propósito, pra reduzir isso — mas **não elimina o risco**. Funciona bem
+melhor com headset (que fisicamente não deixa a saída de áudio voltar
+pro microfone). Se notar falso-positivo constante (interrompendo sozinho
+sem você falar nada), é esse o motivo — desliga, ou usa headset.
+
+```
+JARVIS_INTERRUPT_ENABLED=1
+JARVIS_INTERRUPT_THRESHOLD=1800
+```
+
+**Testado** (na medida do possível sem hardware real): a máquina de
+estados completa via simulação — sem interrupção deixa tocar até o fim;
+com fala alta o suficiente, para o áudio na hora (`SND_PURGE`) e começa
+a capturar; desligado por padrão se comporta exatamente como antes,
+sem interromper nada. **O que não pude testar**: o risco de eco em si,
+que só existe com hardware de áudio de verdade — por isso o aviso
+explícito acima, em vez de fingir que está tudo garantido.
+
+## Controle e segurança — "desliga tudo" rápido
+
+A metade "log de tudo revisável, com desfazer" desse tema já existia —
+é a trilha de auditoria (seção acima). Faltava o **"desliga tudo"**:
+um jeito rápido de parar servidor e escuta de voz na hora, sem precisar
+sair do programa inteiro.
+
+Clique direito no ícone da bandeja → **"🛑 Desligar tudo"**. Clica de
+novo pra religar. Diferente de "Sair" (que encerra o ícone de bandeja
+por completo), isso só pausa — o ícone continua ali, pronto pra religar
+com um clique.
+
+**Detalhe importante que testei separadamente**: o vigia automático
+(que normalmente reinicia sozinho servidor/voz se caírem por acidente —
+ver seção de Infraestrutura) **nunca briga com uma pausa intencional**.
+Se você pausou de propósito, o vigia percebe e não tenta "corrigir"
+religando sozinho — só volta a agir depois que você mesmo religar.
+Testei os 3 cenários: pausar para os dois processos de verdade, religar
+liga os dois de novo, e o vigia respeitando a pausa sem reanimar nada
+escondido.
+
+## Trocando pra uma voz mais natural (Piper)
+
+O `espeak-ng` (padrão) é robótico de propósito — é o que já funciona
+sem baixar nada. Se quiser uma voz mais natural, **ainda 100% local e
+sem custo**, dá pra trocar pro Piper (síntese por rede neural, leve o
+bastante pra rodar na CPU sem GPU nenhuma).
+
+### Passo a passo
+1. `pip install piper-tts` (já está no `requirements.txt`)
+2. Baixe um modelo de voz em português — navegue e ouça amostras em
+   https://rhasspy.github.io/piper-samples/ antes de escolher (tem mais
+   de uma voz em pt-BR; a qualidade varia entre elas, vale ouvir antes).
+   O download em si vem do repositório
+   https://huggingface.co/rhasspy/piper-voices — cada voz tem 2
+   arquivos: o `.onnx` (o modelo) e o `.onnx.json` (a configuração) —
+   baixe os dois pra mesma pasta.
+3. No `.env`:
+   ```
+   JARVIS_TTS_ENGINE=piper
+   JARVIS_PIPER_MODEL_PATH=C:\caminho\completo\pra\voz.onnx
+   ```
+4. Reinicia o servidor.
+
+### ⚠️ Isso eu não pude testar de verdade
+O ambiente onde escrevi isso tem o HuggingFace bloqueado — não consegui
+baixar um modelo real pra ouvir a síntese de verdade. **O que testei**:
+o código sempre cai pro `espeak-ng` sozinho se o Piper falhar por
+qualquer motivo (modelo não configurado, arquivo não encontrado, erro
+qualquer) — nunca fica mudo. Também confirmei (com o carregamento do
+modelo simulado) que o modelo é carregado uma vez só e reaproveitado
+nas frases seguintes, não recarrega toda hora (isso seria lento). Mas a
+qualidade da voz em si, e se o modelo baixa e carrega sem problema no
+seu Windows, só você vai poder confirmar.
+
+## Reduzindo a carga de ferramentas pro modelo pequeno
+
+Modelos locais pequenos (`qwen3:4b`, `gemma4:e2b`) lidam pior com um
+catálogo grande de ferramentas do que modelos maiores — não é só teoria,
+é uma limitação real de modelos desse porte. Com 59 tools acumuladas ao
+longo do projeto, valia a pena auditar antes de continuar empilhando.
+
+### 2 achados reais
+
+**1. Sobreposição entre `registrar_compromisso` e `create_calendar_event`**
+Os dois lidam com "algo que tem uma data", mas são conceitos diferentes:
+um é uma promessa/meta sem horário marcado (que o JARVIS cobra depois),
+o outro é um evento de verdade no Google Calendar, com horário. As
+descrições não deixavam isso claro — corrigido, cada uma agora
+referencia a outra explicitamente, ajudando o modelo a escolher certo.
+
+**2. 7 das 59 tools eram do Dashboard de Tokens de IA — que você mesmo
+confirmou não usar hoje** (sem plano pago de IA). Isso é 12% do
+catálogo total disputando atenção do modelo à toa, pra uma
+funcionalidade adormecida. Agora essas 7 tools só aparecem pro modelo
+depois que você realmente cadastra uma assinatura ou registra uso de
+API — **testado com servidor real**: confirmei 52 tools sem nenhum uso
+do dashboard, subindo pra 59 automaticamente assim que cadastrei uma
+assinatura de teste. Se um dia você assinar algo pago, funciona sozinho,
+sem precisar mexer em nada.
+
 ## Fine-tuning — dando personalidade própria ao modelo
 
 Tem uma pasta `finetuning/` com um pipeline completo de LoRA fine-tuning
@@ -1467,9 +1604,32 @@ pra ensinar o JARVIS a responder com uma personalidade mais consistente
 passo a passo completo. É opcional e avançado; requer GPU NVIDIA com pelo
 menos 8GB de VRAM.
 
+### Não precisa treinar nada pra já sentir diferença
+A orientação de personalidade no system prompt principal era só uma
+frase solta ("educado, formal, leal..."), fácil de se diluir no meio de
+um prompt gigante cheio de instrução de ferramenta — exatamente o tipo
+de coisa que modelo local "esquece" em conversas mais longas. Agora o
+prompt inclui 3 exemplos concretos (few-shot), puxados do próprio
+dataset de fine-tuning, como âncora de tom mais forte:
+```
+"desculpa te acordar de madrugada" → "Não há necessidade de desculpas.
+Diferente do senhor, eu não durmo — é uma das poucas vantagens de não
+ser feito de carne e osso."
+```
+O fine-tuning continua valendo a pena pra consistência ainda maior (o
+estilo fica gravado no próprio modelo, não competindo por atenção com o
+resto do prompt), mas não é mais tudo-ou-nada — dá pra sentir alguma
+diferença hoje mesmo, sem GPU nenhuma.
+
+Aproveitei e expandi o dataset de 39 pra **41 exemplos**, com 2 focados
+especificamente em humor seco. **Testado**: usei o próprio
+`add_example.py` (numa cópia, antes de mexer no arquivo real) pra
+confirmar que ainda funciona, e revalidei os 41 exemplos (JSON válido,
+estrutura correta) depois da adição.
+
 ## Próximos passos possíveis
 - Testar modelos maiores (`qwen3:14b`) se quiser mais qualidade e sua GPU aguentar.
-- Trocar `espeak-ng` por Piper pra voz mais natural (ainda local).
+- Baixar e testar de verdade um modelo de voz do Piper (veja a seção acima) — o código já suporta, só falta você validar a qualidade real no seu PC.
 - Se um dia quiser voltar a rodar 24/7 sem o PC ligado, a versão anterior
   (Claude + Render + Neon) continua sendo a arquitetura certa pra isso — as
   duas versões podem conviver, são só configurações diferentes do mesmo

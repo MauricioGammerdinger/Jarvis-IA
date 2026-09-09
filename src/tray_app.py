@@ -121,6 +121,33 @@ def toggle_wake_word(icon: pystray.Icon, item: pystray.MenuItem) -> None:
     icon.update_menu()
 
 
+_paused = False  # "desliga tudo" — quando True, o watchdog NUNCA tenta reanimar nada sozinho
+
+
+def toggle_pause_everything(icon: pystray.Icon, item: pystray.MenuItem) -> None:
+    """
+    'Desliga tudo' rápido — para o servidor e a escuta de voz na hora,
+    sem precisar sair do ícone de bandeja. Diferente de 'Sair', dá pra
+    religar depois clicando de novo, sem precisar reabrir o programa.
+    """
+    global _paused
+    _paused = not _paused
+    if _paused:
+        stop_wake_word()
+        stop_server()
+        icon.notify("Tudo pausado — servidor e escuta de voz parados.", "J.A.R.V.I.S.")
+    else:
+        start_server()
+        if wake_word_enabled:
+            start_wake_word()
+        icon.notify("Retomado — servidor e escuta de voz ligados de novo.", "J.A.R.V.I.S.")
+    icon.update_menu()
+
+
+def _pause_checked(item: pystray.MenuItem) -> bool:
+    return _paused
+
+
 def open_app(icon: pystray.Icon = None, item: pystray.MenuItem = None) -> None:
     webbrowser.open(APP_URL)
 
@@ -150,6 +177,8 @@ def _watchdog_loop(icon: pystray.Icon) -> None:
     sempre sem sucesso.
     """
     while not _watchdog_stop.wait(WATCHDOG_INTERVAL_SECONDS):
+        if _paused:
+            continue  # pausado de propósito ("desliga tudo") — nunca tenta reanimar sozinho
         if not _is_alive(server_process):
             if _should_attempt_restart("server"):
                 _record_restart_attempt("server")
@@ -184,6 +213,8 @@ def build_menu() -> pystray.Menu:
         pystray.MenuItem("Abrir J.A.R.V.I.S.", open_app, default=True),
         pystray.MenuItem("Hey JARVIS (voz)", toggle_wake_word, checked=_wake_word_checked),
         pystray.MenuItem("Reiniciar servidor", restart_server),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("🛑 Desligar tudo", toggle_pause_everything, checked=_pause_checked),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Sair", quit_app),
     )

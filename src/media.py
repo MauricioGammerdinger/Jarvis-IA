@@ -19,6 +19,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import numpy as np
+
 _whisper_model = None
 
 
@@ -153,3 +155,47 @@ def process_audio(audio_bytes: bytes, suffix: str = ".wav") -> str:
         audio_path = str(Path(tmp) / f"input{suffix}")
         Path(audio_path).write_bytes(audio_bytes)
         return transcribe_audio(audio_path)
+
+
+# ── Tom de voz — aproximação BEM simples, não é detecção de emoção de verdade ──
+# Isso NÃO usa nenhum modelo de emoção — só energia (RMS) e velocidade de
+# fala (palavras/segundo). É um sinal aproximado, útil como dica leve pro
+# modelo ajustar o tom da resposta, nunca uma verdade absoluta sobre como
+# a pessoa está se sentindo. Só funciona em WAV (é o que o listener manda).
+TOM_ENERGIA_ALTA = 2500  # RMS acima disso = "falando alto/enfático"
+TOM_PALAVRAS_POR_SEGUNDO_RAPIDO = 3.0  # acima disso = "falando rápido"
+
+
+def detect_tone(audio_bytes: bytes, transcript: str) -> str:
+    """Devolve 'agitado', 'calmo' ou 'neutro' — aproximação heurística, nunca 100% confiável."""
+    try:
+        import io
+        import wave
+
+        with wave.open(io.BytesIO(audio_bytes)) as wf:
+            n_frames = wf.getnframes()
+            framerate = wf.getframerate()
+            raw = wf.readframes(n_frames)
+
+        if framerate == 0 or n_frames == 0:
+            return "neutro"
+
+        amostras = np.frombuffer(raw, dtype=np.int16)
+        if len(amostras) == 0:
+            return "neutro"
+
+        energia_rms = float(np.sqrt(np.mean(amostras.astype(np.float64) ** 2)))
+        duracao_segundos = n_frames / framerate
+        n_palavras = len(transcript.split())
+        palavras_por_segundo = n_palavras / duracao_segundos if duracao_segundos > 0 else 0
+
+        falando_alto = energia_rms > TOM_ENERGIA_ALTA
+        falando_rapido = palavras_por_segundo > TOM_PALAVRAS_POR_SEGUNDO_RAPIDO
+
+        if falando_alto and falando_rapido:
+            return "agitado"
+        if not falando_alto and not falando_rapido:
+            return "calmo"
+        return "neutro"
+    except Exception:
+        return "neutro"  # falha na detecção nunca deveria travar o fluxo principal — só assume neutro

@@ -370,10 +370,12 @@ TOOLS = [
     {
         "name": "create_calendar_event",
         "description": (
-            "Cria um evento novo no Google Calendar do usuário — AÇÃO REAL. REGRA OBRIGATÓRIA: "
-            "confirme título, data/hora e duração com o usuário antes de chamar essa tool, na "
-            "mensagem anterior, e só chame depois de confirmação explícita. Use `get_datetime` "
-            "primeiro se precisar calcular uma data relativa (ex: 'amanhã às 15h')."
+            "Cria um evento novo no Google Calendar do usuário, COM horário/duração marcados — "
+            "AÇÃO REAL. Diferente de `registrar_compromisso`: isso é pra reservar um horário de "
+            "verdade na agenda, não pra guardar uma promessa sem hora marcada. REGRA "
+            "OBRIGATÓRIA: confirme título, data/hora e duração com o usuário antes de chamar "
+            "essa tool, na mensagem anterior, e só chame depois de confirmação explícita. Use "
+            "`get_datetime` primeiro se precisar calcular uma data relativa (ex: 'amanhã às 15h')."
         ),
         "input_schema": {
             "type": "object",
@@ -747,10 +749,13 @@ TOOLS = [
     {
         "name": "registrar_compromisso",
         "description": (
-            "Guarda um compromisso/promessa que o usuário assumiu na conversa (ex: 'vou terminar "
-            "X até sexta'). USE sempre que notar o usuário se comprometendo com algo, mesmo sem "
-            "ele pedir explicitamente pra anotar — o JARVIS cobra isso sozinho depois, perto do "
-            "prazo, sem precisar ser perguntado."
+            "Guarda uma PROMESSA ou META que o usuário assumiu na conversa, SEM horário marcado "
+            "(ex: 'vou terminar X até sexta', 'quero aprender inglês esse ano'). Diferente de "
+            "`create_calendar_event`: isso é pra cobrar depois, não pra reservar um horário na "
+            "agenda. Se tiver hora/data específica de reunião ou compromisso marcado, use "
+            "`create_calendar_event` no lugar. USE sempre que notar o usuário se comprometendo "
+            "com algo, mesmo sem ele pedir explicitamente pra anotar — o JARVIS cobra isso "
+            "sozinho depois, perto do prazo, sem precisar ser perguntado."
         ),
         "input_schema": {
             "type": "object",
@@ -841,6 +846,40 @@ TOOLS = [
         "input_schema": {"type": "object", "properties": {}},
     },
 ]
+
+
+# ── Tools condicionais — reduz o total enviado ao modelo quando não fazem
+# sentido ainda, importante especialmente pra modelos locais pequenos, que
+# lidam pior com um catálogo grande de ferramentas do que modelos maiores.
+AI_TOKENS_TOOL_NAMES = {
+    "registrar_uso_ia", "ver_custo_ia", "definir_orcamento_ia", "definir_preco_modelo_ia",
+    "cadastrar_assinatura_ia", "registrar_uso_assinatura", "ver_assinaturas_ia",
+}
+
+
+def _ai_tokens_dashboard_em_uso() -> bool:
+    """Só considera 'em uso' se o usuário registrou algo de verdade — abrir a aba pela interface não conta, só ação real."""
+    try:
+        if db.list_subscriptions():
+            return True
+        if db.list_ai_usage():
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def get_active_tools() -> list[dict]:
+    """
+    Lista de tools de verdade enviada ao modelo — os 52 "sempre ativos"
+    mais o Dashboard de Tokens de IA (7 tools) só se o usuário já tiver
+    cadastrado alguma assinatura ou uso de API. Enquanto ninguém usa isso
+    (caso comum — nem todo mundo paga por IA), o modelo nem precisa saber
+    que essas 7 tools existem.
+    """
+    if _ai_tokens_dashboard_em_uso():
+        return TOOLS
+    return [t for t in TOOLS if t["name"] not in AI_TOKENS_TOOL_NAMES]
 
 
 def execute_tool(name: str, tool_input: dict) -> str:

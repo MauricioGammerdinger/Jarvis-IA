@@ -195,6 +195,15 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS voice_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                estado TEXT NOT NULL DEFAULT 'idle',
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         # Coluna de controle: já criamos uma notificação pra esse e-mail?
         # Evita avisar 2x sobre o mesmo e-mail em rodadas seguintes da triagem.
         cols = [r["name"] for r in conn.execute("PRAGMA table_info(email_triage_cache)").fetchall()]
@@ -716,6 +725,35 @@ def mark_audit_entry_undone(entry_id: int) -> bool:
         cursor = conn.execute("UPDATE audit_log SET desfeito = 1 WHERE id = ?", (entry_id,))
         conn.commit()
         return cursor.rowcount > 0
+
+
+# ── Estado de voz — ponte entre o processo do listener e a FACE no navegador ──
+VOICE_STATE_STALE_SECONDS = 30  # se não atualizar em 30s, assume que travou/caiu e volta pro idle
+
+
+def set_voice_state(estado: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO voice_state (id, estado, updated_at) VALUES (1, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET estado = excluded.estado, updated_at = excluded.updated_at",
+            (estado, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+
+
+def get_voice_state() -> str:
+    """Devolve o estado atual — mas se faz tempo demais desde a última atualização (processo travou/caiu), assume 'idle' em vez de ficar preso num estado errado pra sempre."""
+    with _connect() as conn:
+        row = conn.execute("SELECT estado, updated_at FROM voice_state WHERE id = 1").fetchone()
+        if not row:
+            return "idle"
+        atualizado_em = datetime.fromisoformat(row["updated_at"])
+        if atualizado_em.tzinfo is None:
+            atualizado_em = atualizado_em.replace(tzinfo=timezone.utc)
+        segundos_desde_atualizacao = (datetime.now(timezone.utc) - atualizado_em).total_seconds()
+        if segundos_desde_atualizacao > VOICE_STATE_STALE_SECONDS:
+            return "idle"
+        return row["estado"]
 
 
 def get_full_timeline(limite: int = 100) -> list[dict]:

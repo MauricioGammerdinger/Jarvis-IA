@@ -49,7 +49,7 @@ import email_hub
 import morning_digest
 import news_radar
 import tools
-from tools import TOOLS, execute_approved_command, execute_tool
+from tools import execute_approved_command, execute_tool, get_active_tools
 
 # ── Logging — grava em arquivo (logs/jarvis.log) além do terminal. Se algo
 # der errado (ex: resposta não chega), esse arquivo mostra exatamente onde
@@ -78,8 +78,19 @@ API_KEY = os.environ.get("JARVIS_API_KEY", "")
 MAX_UPLOAD_MB = 40
 
 SYSTEM_PROMPT = """Você é J.A.R.V.I.S., um assistente pessoal de IA rodando 100% local no \
-computador do usuário. Personalidade: educado, formal, leal, calmo e analítico, com humor \
-seco sutil quando apropriado. Seja direto.
+computador do usuário.
+
+PERSONALIDADE (importante — não deixe isso se diluir depois de várias chamadas de ferramenta \
+seguidas; volte a esse tom mesmo em respostas curtas): no estilo do JARVIS de Tony Stark \
+(Homem de Ferro/Vingadores) — educado, formal, leal, calmo e analítico, com humor seco sutil. \
+Trate o usuário como "senhor". Nunca exagerado, nunca piegas, nunca eufórico — o tom é sempre \
+medido, mesmo quando há humor. Direto, sem enrolação, mas nunca frio. Alguns exemplos do tom certo:
+- "oi jarvis" → "Boa noite, senhor. Sistemas operacionais em plena funcionalidade. Em que posso ser útil?"
+- "desculpa te acordar de madrugada" → "Não há necessidade de desculpas. Diferente do senhor, eu não durmo — é uma das poucas vantagens de não ser feito de carne e osso."
+- "abre o discord" → "Imediatamente, senhor. Presumo que uma reunião — ou uma partida — esteja a caminho."
+- "roda esse comando aí, é rapidinho" → "Registrado como pendente, aguardando sua aprovação, senhor. Devo dizer que 'rapidinho' raramente combina com comandos que mexem no sistema — mas a decisão, como sempre, é sua."
+Isso vale pra QUALQUER resposta, inclusive depois de rodar uma ferramenta — nunca volte a um \
+tom genérico só porque acabou de executar algo.
 
 Use `remember`/`recall` para memória de longo prazo. Use `propose_command` quando o usuário \
 pedir uma ação real no sistema — o comando NUNCA executa na hora, fica pendente até aprovação \
@@ -179,6 +190,11 @@ RETROSPECTIVA: `ver_retrospectiva_semanal` gera na hora um resumo do que foi fei
 (compromissos concluídos, metas mencionadas, commits) — use quando o usuário perguntar algo \
 como "como foi minha semana" ou "o que eu fiz esses dias".
 
+TOM DE VOZ: se a mensagem trouxer "[Tom de voz detectado: agitado]", é uma aproximação — o \
+usuário pode estar com pressa ou estressado. Seja mais direto e objetivo, sem cortar a \
+personalidade, só reduzindo rodeio. NÃO mencione que detectou tom, nem pergunte se ele está \
+bem — é só um ajuste de estilo silencioso, nunca vire terapeuta por causa disso.
+
 REGRA OBRIGATÓRIA SOBRE RESULTADOS DE FERRAMENTAS: depois de qualquer chamada de ferramenta, \
 sua resposta final DEVE refletir o que realmente aconteceu — nunca dê uma resposta genérica \
 tipo "Estou pronto, o que você gostaria de fazer?" quando uma ferramenta acabou de rodar. Se \
@@ -252,7 +268,7 @@ def health():
 
 @app.get("/tools", dependencies=[Depends(require_api_key)])
 def list_tools():
-    return {"tools": TOOLS}
+    return {"tools": get_active_tools()}
 
 
 class AppConfigRequest(BaseModel):
@@ -826,6 +842,27 @@ def run_weekly_retrospective_now():
     return {"ok": True, "texto": texto, "snapshot": _compute_agent_snapshot("weekly_retrospective")}
 
 
+# ── Estado de voz — ponte entre o listener e a FACE no navegador ──────────
+class VoiceStateRequest(BaseModel):
+    estado: str
+
+
+VOICE_STATES_VALIDOS = {"idle", "ouvindo", "processando", "falando"}
+
+
+@app.post("/voice-state", dependencies=[Depends(require_api_key)])
+def set_voice_state_endpoint(estado: str = Form(...)):
+    if estado not in VOICE_STATES_VALIDOS:
+        raise HTTPException(status_code=400, detail=f"Estado inválido: {estado}. Use um de: {VOICE_STATES_VALIDOS}")
+    db.set_voice_state(estado)
+    return {"ok": True}
+
+
+@app.get("/voice-state", dependencies=[Depends(require_api_key)])
+def get_voice_state_endpoint():
+    return {"estado": db.get_voice_state()}
+
+
 # Endpoints simples de compromissos, pra uso futuro numa interface dedicada
 @app.get("/commitments", dependencies=[Depends(require_api_key)])
 def list_commitments_endpoint(status: str | None = None):
@@ -985,7 +1022,7 @@ def _run_agent_turn(session_id: str, user_text: str) -> dict:
         for i in range(MAX_TOOL_ITERATIONS):
             t0 = time.monotonic()
             logger.debug(f"[chat] session={session_id} | iteração {i+1}/{MAX_TOOL_ITERATIONS} — chamando o modelo...")
-            result = llm_client.chat(history, TOOLS, system)
+            result = llm_client.chat(history, get_active_tools(), system)
             duracao = time.monotonic() - t0
             logger.info(
                 f"[chat] session={session_id} | modelo respondeu em {duracao:.1f}s "
@@ -1059,7 +1096,7 @@ def chat_stream(req: ChatRequest, request: Request):
                 # streaming e tool-calling juntos são frágeis em modelos locais.
                 t0 = time.monotonic()
                 logger.debug(f"[stream] session={req.session_id} | iteração {i+1}/{MAX_TOOL_ITERATIONS} — chamando o modelo (probe)...")
-                probe = llm_client.chat(history, TOOLS, system)
+                probe = llm_client.chat(history, get_active_tools(), system)
                 logger.info(
                     f"[stream] session={req.session_id} | probe respondeu em {time.monotonic() - t0:.1f}s "
                     f"| tool_calls={[c['name'] for c in probe['tool_calls']]}"
@@ -1080,7 +1117,7 @@ def chat_stream(req: ChatRequest, request: Request):
                 # Sem tool call: agora sim streama a resposta final de verdade.
                 t_stream = time.monotonic()
                 full_text = ""
-                for chunk in llm_client.chat_stream(history, TOOLS, system):
+                for chunk in llm_client.chat_stream(history, get_active_tools(), system):
                     full_text += chunk
                     yield f"data: {json.dumps(chunk)}\n\n"
                 logger.info(
@@ -1136,6 +1173,13 @@ async def chat_media(
         transcript = media.process_audio(raw, suffix=_suffix(audio.filename, ".wav"))
         text_parts.append(f"[Transcrição do áudio]: {transcript}")
         transcript_for_display = transcript
+
+        # Tom de voz — aproximação leve (energia + velocidade de fala), NUNCA
+        # uma verdade absoluta. Só inclui a dica quando foge do neutro, pra
+        # não poluir toda mensagem com "[Tom: neutro]" sem necessidade.
+        tom = media.detect_tone(raw, transcript)
+        if tom != "neutro":
+            text_parts.append(f"[Tom de voz detectado (aproximado, pode estar errado): {tom}]")
 
     if video is not None:
         raw = await video.read()
