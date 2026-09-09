@@ -43,6 +43,7 @@ import tts
 import calendar_hub
 import background_agents
 import finance
+import health_check
 import self_update
 import code_editor
 import ai_tokens
@@ -960,6 +961,11 @@ def get_category_budgets_endpoint():
 def set_category_budget_endpoint(req: CategoryBudgetRequest):
     db.set_category_budget(req.categoria, req.limite_mensal)
     return {"ok": True}
+
+
+@app.get("/diagnostics", dependencies=[Depends(require_api_key)])
+def run_diagnostics_endpoint():
+    return health_check.run_full_diagnostics()
 
 
 # ── Progresso de metas (pro gráfico) ───────────────────────────────────

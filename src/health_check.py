@@ -79,3 +79,50 @@ def format_summary(resultado: dict) -> str:
         if not check["ok"]:
             linhas.append(f"  - {nome}: {check['detalhe']}")
     return "\n".join(linhas)
+
+
+def check_database() -> dict:
+    """Confirma que o banco de dados está acessível de verdade (não só que o arquivo existe)."""
+    try:
+        import database as db
+
+        db.list_memories()  # operação de leitura simples, real
+        return {"ok": True, "detalhe": "Banco de dados acessível."}
+    except Exception as e:
+        return {"ok": False, "detalhe": f"Erro ao acessar o banco: {e}"}
+
+
+def check_agents() -> dict:
+    """Conta quantos agentes de fundo (dos que estão LIGADOS) estão com erro registrado."""
+    try:
+        import background_agents
+        import database as db
+
+        problemas = []
+        for agent_id, meta in background_agents.AGENTS_REGISTRY.items():
+            if background_agents.is_agent_off(agent_id):
+                continue  # desligado de propósito, não conta como problema
+            state_row = db.get_agent_state(agent_id)
+            if not state_row:
+                continue  # nunca rodou ainda — não necessariamente um problema
+            if state_row["status"] == "error":
+                problemas.append(f"{meta['nome']}: {state_row['detail']}")
+
+        if problemas:
+            return {"ok": False, "detalhe": f"{len(problemas)} agente(s) com erro — {'; '.join(problemas)}"}
+        return {"ok": True, "detalhe": "Todos os agentes ativos estão sem erro registrado."}
+    except Exception as e:
+        return {"ok": False, "detalhe": f"Erro ao checar agentes: {e}"}
+
+
+def run_full_diagnostics() -> dict:
+    """Roda TODAS as checagens de uma vez — Ollama, modelo, microfone, banco, agentes."""
+    resultados = {
+        "ollama": check_ollama(),
+        "modelo": check_model_available(),
+        "microfone": check_microphone(),
+        "banco_de_dados": check_database(),
+        "agentes": check_agents(),
+    }
+    tudo_ok = all(r["ok"] for r in resultados.values())
+    return {"tudo_ok": tudo_ok, "checks": resultados}

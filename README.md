@@ -271,6 +271,7 @@ na raiz do projeto, não dentro de `src/`.
 | `criar_rotina` / `executar_rotina` / `listar_rotinas` | Sequência de ações encadeadas (só tools seguras) |
 | `checar_atualizacao_jarvis` / `aplicar_atualizacao_jarvis` | Auto-atualização via GitHub, com confirmação |
 | `registrar_transacao` / `ver_resumo_financeiro` / `definir_orcamento_categoria` | Dashboard financeiro geral |
+| `diagnostico_completo` | Checa Ollama, modelo, microfone, banco, e agentes de uma vez |
 | `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
@@ -1333,6 +1334,23 @@ claramente em vez de ficar reiniciando pra sempre sem sucesso.
   tentativa antiga (fora da janela de 5 minutos) para de contar —
   a janela desliza corretamente com o tempo, não é uma contagem fixa
   que nunca reseta
+
+### Diagnóstico completo, sob pedido
+```
+"Hey JARVIS, está tudo funcionando?"
+```
+Além dos 3 itens da checagem automática de ligar, esse checa mais 2:
+banco de dados acessível de verdade (não só que o arquivo existe), e se
+algum agente de fundo está com erro registrado.
+
+⚠️ **Por que isso NÃO está na checagem automática de ligar**: testei o
+cenário e confirmei que dá falso alarme — logo depois de pedir pro
+servidor subir, o banco ainda não teve tempo de ser inicializado (é um
+processo separado), então checar o banco nesse exato momento acusa erro
+("no such table") mesmo quando está tudo prestes a funcionar
+perfeitamente segundos depois. Por isso o diagnóstico completo fica só
+sob pedido, quando o servidor já está de pé há um tempo — não tem esse
+risco de tempo.
 
 ## Sincronizando entre 2 PCs (ex: PC principal + notebook)
 

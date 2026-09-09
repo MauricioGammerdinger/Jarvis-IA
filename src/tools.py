@@ -35,6 +35,7 @@ import database as db
 import email_hub
 import embeddings
 import finance
+import health_check
 import google_calendar
 import morning_digest
 import mouse_control
@@ -996,6 +997,11 @@ TOOLS = [
             "required": ["categoria", "limite_mensal"],
         },
     },
+    {
+        "name": "diagnostico_completo",
+        "description": "Checa tudo de uma vez — Ollama, modelo, microfone, banco de dados, e se algum agente de fundo está com erro. USE quando o usuário perguntar algo como 'está tudo funcionando?' ou 'faz um diagnóstico'.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
 ]
 
 # Tools seguras o bastante pra entrar numa rotina — só leitura de
@@ -1533,6 +1539,10 @@ def execute_tool(name: str, tool_input: dict) -> str:
     if name == "definir_orcamento_categoria":
         db.set_category_budget(tool_input["categoria"], tool_input["limite_mensal"])
         return f"Orçamento de '{tool_input['categoria']}' definido em R$ {tool_input['limite_mensal']:.2f}/mês."
+
+    if name == "diagnostico_completo":
+        resultado = health_check.run_full_diagnostics()
+        return health_check.format_summary(resultado)
 
     return f"Ferramenta desconhecida: {name}"
 
