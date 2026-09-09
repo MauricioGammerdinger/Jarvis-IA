@@ -847,6 +847,10 @@
       <button class="sidebar-nav-item" id="auditLogTabBtn">
         <span>📜 O que o JARVIS fez sozinho</span>
       </button>
+      <button class="sidebar-nav-item" id="financeTabBtn">
+        <span>💵 Finanças</span>
+        <span class="badge" id="financeAlertBadge"></span>
+      </button>
       <button class="sidebar-nav-item" id="aiTokensTabBtn">
         <span>💰 Tokens de IA</span>
         <span class="badge" id="aiTokensAlertBadge"></span>
@@ -1077,6 +1081,16 @@
       </div>
     </div>
 
+    <div class="panel" data-panel="finance">
+      <div class="hub-toolbar">
+        <strong>💵 Dashboard Financeiro</strong>
+        <button id="financeReloadBtn" class="icon-btn" title="Recarregar">⟳</button>
+      </div>
+      <div class="hub-inner" id="financeInner">
+        <div class="empty-state">Carregando...</div>
+      </div>
+    </div>
+
     <div class="panel" data-panel="ai-tokens">
       <div class="hub-toolbar">
         <strong>💰 Dashboard de Tokens de IA</strong>
@@ -1153,6 +1167,7 @@
     if (name === "news") loadNews();
     if (name === "agents") loadAgentsPanel();
     if (name === "ai-tokens") loadAiTokensPanel();
+    if (name === "finance") loadFinancePanel();
     if (name === "audit-log") loadAuditLog();
     if (name === "settings") { loadMicDevices(); loadApps(); loadCalendarsConfig(); loadEmailAccountsConfig(); loadNewsTopicsConfig(); loadCodeProjectsConfig(); loadNarrationHour(); loadNewsSourcesConfig(); }
     closeSidebarOnMobile();
@@ -2698,6 +2713,110 @@
 
   // ── Dashboard de Tokens de IA ─────────────────────────────────────────
   let aiCurrentTab = "overview";
+
+  // ── Dashboard Financeiro ──────────────────────────────────────────────
+  async function loadFinancePanel() {
+    const el = $("financeInner");
+    if (!apiKey) { el.innerHTML = ""; return; }
+    el.innerHTML = '<div class="empty-state">Carregando...</div>';
+    try {
+      const res = await fetch(serverUrl + "/finance/summary", { headers: { "X-API-Key": apiKey } });
+      const resumo = await res.json();
+
+      const saldoClass = resumo.saldo >= 0 ? "good" : "danger";
+      const badge = $("financeAlertBadge");
+      const algumEstourou = resumo.despesas_por_categoria.some((c) => c.estourou);
+      if (badge) badge.textContent = algumEstourou ? "!" : "";
+
+      el.innerHTML = `
+        <div class="ai-kpi-grid">
+          <div class="ai-kpi-card good">
+            <div class="ai-kpi-label">Receitas (${resumo.mes})</div>
+            <div class="ai-kpi-value">R$ ${resumo.total_receitas.toFixed(2)}</div>
+          </div>
+          <div class="ai-kpi-card danger">
+            <div class="ai-kpi-label">Despesas</div>
+            <div class="ai-kpi-value">R$ ${resumo.total_despesas.toFixed(2)}</div>
+          </div>
+          <div class="ai-kpi-card ${saldoClass}">
+            <div class="ai-kpi-label">Saldo</div>
+            <div class="ai-kpi-value">R$ ${resumo.saldo.toFixed(2)}</div>
+          </div>
+        </div>
+        <h3 style="font-size:13px;color:var(--text-dim);margin-bottom:10px;">Gasto por categoria</h3>
+        <div id="financeCategoryBreakdown"></div>
+
+        <label style="margin-top:16px;display:block;">Registrar transação</label>
+        <div class="ai-form-inline">
+          <select id="financeTipo"><option value="despesa">despesa</option><option value="receita">receita</option></select>
+          <input id="financeCategoria" type="text" placeholder="Categoria" style="width:130px;" />
+          <input id="financeValor" type="number" step="0.01" placeholder="Valor" style="width:100px;" />
+          <input id="financeDescricao" type="text" placeholder="Descrição" style="width:150px;" />
+          <input id="financeData" type="date" value="${new Date().toISOString().slice(0, 10)}" />
+          <button id="financeAddBtn" type="button">+ Adicionar</button>
+        </div>
+        <span id="financeFormResult" style="font-size:12px;color:var(--text-dim);"></span>
+
+        <label style="margin-top:16px;display:block;">Definir orçamento por categoria</label>
+        <div class="ai-form-inline">
+          <input id="financeBudgetCategoria" type="text" placeholder="Categoria" style="width:150px;" />
+          <input id="financeBudgetValor" type="number" step="0.01" placeholder="Limite mensal" style="width:130px;" />
+          <button id="financeBudgetBtn" type="button">Salvar orçamento</button>
+        </div>
+        <span id="financeBudgetResult" style="font-size:12px;color:var(--text-dim);"></span>
+      `;
+
+      const breakdownEl = $("financeCategoryBreakdown");
+      if (!resumo.despesas_por_categoria.length) {
+        breakdownEl.innerHTML = '<div class="empty-state">Nenhuma despesa registrada esse mês ainda.</div>';
+      } else {
+        const max = Math.max(...resumo.despesas_por_categoria.map((c) => c.gasto));
+        breakdownEl.innerHTML = resumo.despesas_por_categoria.map((c) => {
+          const corBarra = c.estourou ? "var(--red)" : "var(--cyan)";
+          const limiteTxt = c.limite != null ? ` de R$ ${c.limite.toFixed(2)} (${c.pct_orcamento.toFixed(0)}%)` : "";
+          return `
+            <div class="ai-bar-row">
+              <span class="ai-bar-label">${escapeHtml(c.categoria)}</span>
+              <span class="ai-bar-track"><span class="ai-bar-fill" style="width:${max > 0 ? (c.gasto / max * 100) : 0}%;background:${corBarra};"></span></span>
+              <span class="ai-bar-value" style="width:150px;">R$ ${c.gasto.toFixed(2)}${limiteTxt}</span>
+            </div>`;
+        }).join("");
+      }
+
+      $("financeAddBtn").addEventListener("click", async () => {
+        const tipo = $("financeTipo").value;
+        const categoria = $("financeCategoria").value.trim();
+        const valor = parseFloat($("financeValor").value);
+        const descricao = $("financeDescricao").value.trim();
+        const data = $("financeData").value;
+        const resultEl = $("financeFormResult");
+        if (!categoria || isNaN(valor) || !data) { resultEl.textContent = "Preencha categoria, valor e data."; return; }
+        await fetch(serverUrl + "/finance/transactions", {
+          method: "POST", headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ tipo, categoria, valor, descricao, data }),
+        });
+        resultEl.textContent = "Registrado!";
+        loadFinancePanel();
+      });
+
+      $("financeBudgetBtn").addEventListener("click", async () => {
+        const categoria = $("financeBudgetCategoria").value.trim();
+        const limite = parseFloat($("financeBudgetValor").value);
+        const resultEl = $("financeBudgetResult");
+        if (!categoria || isNaN(limite)) { resultEl.textContent = "Preencha categoria e limite."; return; }
+        await fetch(serverUrl + "/finance/budgets", {
+          method: "POST", headers: { "X-API-Key": apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ categoria, limite_mensal: limite }),
+        });
+        resultEl.textContent = "Orçamento salvo!";
+        loadFinancePanel();
+      });
+    } catch (err) {
+      el.innerHTML = `<div class="empty-state">Falha ao carregar: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+  $("financeTabBtn")?.addEventListener("click", () => showPanel("finance"));
+  $("financeReloadBtn")?.addEventListener("click", loadFinancePanel);
 
   async function loadAiTokensPanel() {
     renderAiTab();

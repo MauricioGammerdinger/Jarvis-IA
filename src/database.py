@@ -221,6 +221,29 @@ def init_db():
 
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tipo TEXT NOT NULL,
+                categoria TEXT NOT NULL,
+                valor REAL NOT NULL,
+                descricao TEXT,
+                data TEXT NOT NULL,
+                criado_em TEXT NOT NULL
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS category_budgets (
+                categoria TEXT PRIMARY KEY,
+                limite_mensal REAL NOT NULL
+            )
+            """
+        )
+
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 tipo TEXT NOT NULL,
@@ -935,6 +958,53 @@ def delete_routine(nome: str) -> bool:
         cursor = conn.execute("DELETE FROM routines WHERE nome = ?", (nome,))
         conn.commit()
         return cursor.rowcount > 0
+
+
+# ── Dashboard financeiro geral (não só IA) ─────────────────────────────
+def add_transaction(tipo: str, categoria: str, valor: float, descricao: str | None, data: str) -> int:
+    """`tipo` é 'receita' ou 'despesa'."""
+    with _connect() as conn:
+        cursor = conn.execute(
+            "INSERT INTO transactions (tipo, categoria, valor, descricao, data, criado_em) VALUES (?, ?, ?, ?, ?, ?)",
+            (tipo, categoria, valor, descricao, data, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def list_transactions(mes: str | None = None) -> list[dict]:
+    """`mes` no formato 'YYYY-MM'. Sem isso, lista tudo."""
+    with _connect() as conn:
+        if mes:
+            rows = conn.execute(
+                "SELECT * FROM transactions WHERE data LIKE ? ORDER BY data DESC", (f"{mes}%",)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM transactions ORDER BY data DESC").fetchall()
+        return [dict(r) for r in rows]
+
+
+def delete_transaction(transaction_id: int) -> bool:
+    with _connect() as conn:
+        cursor = conn.execute("DELETE FROM transactions WHERE id = ?", (transaction_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def set_category_budget(categoria: str, limite_mensal: float) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO category_budgets (categoria, limite_mensal) VALUES (?, ?) "
+            "ON CONFLICT(categoria) DO UPDATE SET limite_mensal = excluded.limite_mensal",
+            (categoria, limite_mensal),
+        )
+        conn.commit()
+
+
+def get_category_budgets() -> dict[str, float]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM category_budgets").fetchall()
+        return {r["categoria"]: r["limite_mensal"] for r in rows}
 
 
 # ── Estado de voz — ponte entre o processo do listener e a FACE no navegador ──

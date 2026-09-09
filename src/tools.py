@@ -34,6 +34,7 @@ import web_search
 import database as db
 import email_hub
 import embeddings
+import finance
 import google_calendar
 import morning_digest
 import mouse_control
@@ -960,6 +961,41 @@ TOOLS = [
         "description": "Aplica a atualização do JARVIS (git pull) — SEMPRE confirme com o usuário antes de chamar isso. Depois de aplicar, ainda precisa reiniciar o servidor manualmente (isso não é feito sozinho).",
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "registrar_transacao",
+        "description": "Registra uma receita ou despesa. USE quando o usuário mencionar um gasto ou ganho (ex: 'gastei 50 reais no mercado', 'recebi meu salário').",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tipo": {"type": "string", "enum": ["receita", "despesa"]},
+                "categoria": {"type": "string", "description": "Ex: 'alimentação', 'transporte', 'salário'."},
+                "valor": {"type": "number"},
+                "descricao": {"type": "string"},
+                "data": {"type": "string", "description": "Data no formato YYYY-MM-DD. Se omitido, usa hoje."},
+            },
+            "required": ["tipo", "categoria", "valor"],
+        },
+    },
+    {
+        "name": "ver_resumo_financeiro",
+        "description": "Mostra o resumo financeiro do mês: receitas, despesas, saldo, e gasto por categoria (com comparação ao orçamento, se definido).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"mes": {"type": "string", "description": "Formato YYYY-MM. Se omitido, usa o mês atual."}},
+        },
+    },
+    {
+        "name": "definir_orcamento_categoria",
+        "description": "Define um limite mensal de gasto pra uma categoria (ex: 'alimentação').",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "categoria": {"type": "string"},
+                "limite_mensal": {"type": "number"},
+            },
+            "required": ["categoria", "limite_mensal"],
+        },
+    },
 ]
 
 # Tools seguras o bastante pra entrar numa rotina — só leitura de
@@ -1483,6 +1519,20 @@ def execute_tool(name: str, tool_input: dict) -> str:
         if not resultado["aplicado"]:
             return resultado["motivo"]
         return resultado["mensagem"]
+
+    if name == "registrar_transacao":
+        import datetime as dt_module
+        data = tool_input.get("data") or dt_module.date.today().isoformat()
+        db.add_transaction(tool_input["tipo"], tool_input["categoria"], tool_input["valor"], tool_input.get("descricao"), data)
+        return f"{tool_input['tipo'].capitalize()} de R$ {tool_input['valor']:.2f} registrada em '{tool_input['categoria']}'."
+
+    if name == "ver_resumo_financeiro":
+        resumo = finance.get_monthly_summary(tool_input.get("mes"))
+        return finance.format_summary(resumo)
+
+    if name == "definir_orcamento_categoria":
+        db.set_category_budget(tool_input["categoria"], tool_input["limite_mensal"])
+        return f"Orçamento de '{tool_input['categoria']}' definido em R$ {tool_input['limite_mensal']:.2f}/mês."
 
     return f"Ferramenta desconhecida: {name}"
 

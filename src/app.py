@@ -42,6 +42,7 @@ import media
 import tts
 import calendar_hub
 import background_agents
+import finance
 import self_update
 import code_editor
 import ai_tokens
@@ -910,6 +911,55 @@ def apply_self_update_endpoint():
     if not resultado["ok"]:
         raise HTTPException(status_code=400, detail=resultado["motivo"])
     return resultado
+
+
+# ── Dashboard financeiro geral ─────────────────────────────────────────
+class TransactionRequest(BaseModel):
+    tipo: str
+    categoria: str
+    valor: float
+    descricao: str | None = None
+    data: str
+
+
+class CategoryBudgetRequest(BaseModel):
+    categoria: str
+    limite_mensal: float
+
+
+@app.get("/finance/summary", dependencies=[Depends(require_api_key)])
+def get_finance_summary_endpoint(mes: str | None = None):
+    return finance.get_monthly_summary(mes)
+
+
+@app.get("/finance/transactions", dependencies=[Depends(require_api_key)])
+def list_transactions_endpoint(mes: str | None = None):
+    return {"transactions": db.list_transactions(mes)}
+
+
+@app.post("/finance/transactions", dependencies=[Depends(require_api_key)])
+def add_transaction_endpoint(req: TransactionRequest):
+    transaction_id = db.add_transaction(req.tipo, req.categoria, req.valor, req.descricao, req.data)
+    return {"ok": True, "id": transaction_id}
+
+
+@app.delete("/finance/transactions/{transaction_id}", dependencies=[Depends(require_api_key)])
+def delete_transaction_endpoint(transaction_id: int):
+    removido = db.delete_transaction(transaction_id)
+    if not removido:
+        raise HTTPException(status_code=404, detail=f"Transação #{transaction_id} não encontrada.")
+    return {"ok": True}
+
+
+@app.get("/finance/budgets", dependencies=[Depends(require_api_key)])
+def get_category_budgets_endpoint():
+    return {"budgets": db.get_category_budgets()}
+
+
+@app.post("/finance/budgets", dependencies=[Depends(require_api_key)])
+def set_category_budget_endpoint(req: CategoryBudgetRequest):
+    db.set_category_budget(req.categoria, req.limite_mensal)
+    return {"ok": True}
 
 
 # ── Progresso de metas (pro gráfico) ───────────────────────────────────

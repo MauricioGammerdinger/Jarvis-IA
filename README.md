@@ -185,6 +185,7 @@ jarvis-ia/
 │   ├── focus_monitor.py                                 # Detecção de "travado" (opt-in, sem gravar em disco)
 │   ├── camera_vision.py                                 # Visão por câmera (descrição + check-in emocional, opt-in)
 │   ├── self_update.py                                    # Auto-atualização (checar/aplicar, nunca reinicia sozinho)
+│   ├── finance.py                                        # Dashboard financeiro (resumo, saldo, orçamento)
 │   ├── ai_tokens.py                                    # Dashboard de Tokens de IA (custo + cota)
 │   ├── wake_word_listener.py                   # "Hey JARVIS" — ativação por voz
 │   └── tray_app.py                               # Ícone na bandeja do sistema
@@ -269,6 +270,7 @@ na raiz do projeto, não dentro de `src/`.
 | `cadastrar_dispositivo_casa` / `listar_dispositivos_casa` | Múltiplos dispositivos de casa inteligente |
 | `criar_rotina` / `executar_rotina` / `listar_rotinas` | Sequência de ações encadeadas (só tools seguras) |
 | `checar_atualizacao_jarvis` / `aplicar_atualizacao_jarvis` | Auto-atualização via GitHub, com confirmação |
+| `registrar_transacao` / `ver_resumo_financeiro` / `definir_orcamento_categoria` | Dashboard financeiro geral |
 | `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
@@ -1765,6 +1767,27 @@ a checagem detecta a quantidade certa de commits, e o `apply_update()`
 realmente muda o conteúdo do arquivo no disco (não só diz que
 funcionou). Também testei o não-repetir aviso pra mesma situação, e o
 avisar de novo quando mais commits se acumulam depois do primeiro aviso.
+
+## Dashboard Financeiro — não só IA
+
+Igual o Dashboard de Tokens de IA, mas pra finanças pessoais em geral:
+receita, despesa, saldo, e orçamento por categoria.
+```
+"Hey JARVIS, gastei 45 reais no almoço"
+"Hey JARVIS, qual meu resumo financeiro desse mês?"
+"Hey JARVIS, define um orçamento de 500 reais pra alimentação"
+```
+Aba nova "💵 Finanças", com os mesmos cartões de resumo e barra de gasto
+por categoria que já existiam no Dashboard de Tokens — categoria que
+estourou o orçamento fica destacada em vermelho, saldo negativo também.
+
+**Testado contra conta feita à mão** (mesmo rigor do Dashboard de
+Tokens): saldo, gasto por categoria, e % do orçamento batendo com o
+cálculo manual, incluindo o caso de categoria sem orçamento definido
+(não tenta comparar, corretamente). **Testado visualmente** com
+Playwright — inclusive conferindo a **cor real** das barras via
+computed style (não só a aparência na captura de tela), confirmando
+vermelho de verdade pra quem estourou.
 
 ## Fine-tuning — dando personalidade própria ao modelo
 
