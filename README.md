@@ -186,6 +186,7 @@ jarvis-ia/
 │   ├── camera_vision.py                                 # Visão por câmera (descrição + check-in emocional, opt-in)
 │   ├── self_update.py                                    # Auto-atualização (checar/aplicar, nunca reinicia sozinho)
 │   ├── finance.py                                        # Dashboard financeiro (resumo, saldo, orçamento)
+│   ├── quick_briefing.py                                 # Briefing rápido ("fala comigo, JARVIS")
 │   ├── ai_tokens.py                                    # Dashboard de Tokens de IA (custo + cota)
 │   ├── wake_word_listener.py                   # "Hey JARVIS" — ativação por voz
 │   └── tray_app.py                               # Ícone na bandeja do sistema
@@ -272,6 +273,7 @@ na raiz do projeto, não dentro de `src/`.
 | `checar_atualizacao_jarvis` / `aplicar_atualizacao_jarvis` | Auto-atualização via GitHub, com confirmação |
 | `registrar_transacao` / `ver_resumo_financeiro` / `definir_orcamento_categoria` | Dashboard financeiro geral |
 | `diagnostico_completo` | Checa Ollama, modelo, microfone, banco, e agentes de uma vez |
+| `briefing_rapido` | Sitrep curta — "fala comigo, JARVIS" |
 | `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
 
@@ -1806,6 +1808,59 @@ cálculo manual, incluindo o caso de categoria sem orçamento definido
 Playwright — inclusive conferindo a **cor real** das barras via
 computed style (não só a aparência na captura de tela), confirmando
 vermelho de verdade pra quem estourou.
+
+## Wake word customizada — "JARVIS" sem o "Hey"
+
+Por padrão, o JARVIS usa o modelo "Hey JARVIS" que já vem pronto dentro
+da biblioteca `openwakeword` — funciona na hora, sem baixar nem treinar
+nada. Só existe esse modelo pronto (junto com "Alexa", "Hey Mycroft",
+"Hey Marvin") — **não tem nenhum modelo pronto pra só "JARVIS", sem o
+"hey"**. Pra ter isso, precisa treinar um modelo customizado.
+
+### O que isso envolve, sem enrolação
+Esse é o mesmo tipo de tarefa que o fine-tuning de personalidade (seção
+abaixo) — **eu preparei o código pra usar o resultado, mas o treino em
+si só roda no seu PC**, com mais tempo/recurso do que qualquer outra
+coisa desse projeto:
+1. O treino usa **dados sintéticos** — várias vozes diferentes falando
+   "JARVIS" geradas por texto-pra-voz, misturadas com ruído de fundo e
+   eco de sala pra ficar realista
+2. Depois treina um classificador leve em cima disso
+
+Isso é um processo **documentado oficialmente pelo próprio projeto
+openWakeWord** (não é algo que eu inventei) — a fonte certa é o
+repositório deles no GitHub (`dscripka/openWakeWord`), que tem um
+notebook de treino pronto pra seguir passo a passo. Não tentei
+reconstruir os passos exatos aqui porque não consegui verificar (rede
+bloqueada no ambiente onde escrevi isso) — siga a documentação oficial
+deles diretamente, é mais confiável que eu tentar adivinhar de memória.
+
+### Depois de treinar
+O resultado é um arquivo `.onnx`. Só aponta o caminho no `.env`:
+```
+JARVIS_WAKE_WORD_MODEL_PATH=C:\caminho\pro\seu\modelo_jarvis.onnx
+```
+**Testado**: a lógica de carregar o modelo — sem configurar nada usa o
+"Hey JARVIS" padrão; com um caminho customizado que não existe, erro
+claro; com um caminho customizado que existe, usa ele. A qualidade real
+do modelo treinado, só você vai poder confirmar depois de treinar.
+
+## Briefing rápido — "fala comigo, JARVIS"
+
+Diferente do Morning Digest (mais longo, roda de manhã, com clima e
+notícias), isso é uma sitrep de poucos segundos, sob pedido, a qualquer
+hora:
+```
+"Hey JARVIS, fala comigo"
+"Hey JARVIS, me dá um resumo rápido"
+```
+Junta só o que importa agora: próximo compromisso (com contagem
+regressiva), quantos e-mails pedindo ação, quantas notificações não
+lidas. **Testado** nos 2 cenários (nada pendente → "tudo tranquilo"; com
+compromisso e notificação → junta as duas informações numa frase só) —
+no processo, encontrei e corrigi um nome de campo errado
+(`get_next_event()` devolve `countdown`, não o que eu tinha assumido
+inicialmente) antes de virar bug de verdade.
 
 ## Fine-tuning — dando personalidade própria ao modelo
 

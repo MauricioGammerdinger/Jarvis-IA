@@ -44,6 +44,7 @@ import calendar_hub
 import background_agents
 import finance
 import health_check
+import quick_briefing
 import self_update
 import code_editor
 import ai_tokens
@@ -192,6 +193,10 @@ definir JARVIS_SYNC_FOLDER no .env.
 RETROSPECTIVA: `ver_retrospectiva_semanal` gera na hora um resumo do que foi feito na semana \
 (compromissos concluídos, metas mencionadas, commits) — use quando o usuário perguntar algo \
 como "como foi minha semana" ou "o que eu fiz esses dias".
+
+BRIEFING RÁPIDO: `briefing_rapido` é uma sitrep de poucos segundos, diferente do Morning \
+Digest (que é mais longo e elaborado) — use quando o usuário disser algo como "fala comigo, \
+JARVIS" ou "me dá um resumo rápido".
 
 CÂMERA: `ver_camera` tira uma foto agora e descreve o que vê. Se não tiver modelo de visão \
 configurado, a ferramenta já avisa isso claramente — só repasse a mensagem, não invente uma \
@@ -966,6 +971,11 @@ def set_category_budget_endpoint(req: CategoryBudgetRequest):
 @app.get("/diagnostics", dependencies=[Depends(require_api_key)])
 def run_diagnostics_endpoint():
     return health_check.run_full_diagnostics()
+
+
+@app.get("/briefing", dependencies=[Depends(require_api_key)])
+def get_quick_briefing_endpoint():
+    return {"texto": quick_briefing.get_quick_briefing()}
 
 
 # ── Progresso de metas (pro gráfico) ───────────────────────────────────

@@ -186,8 +186,20 @@ def _resolve_input_device():
     )
 
 
-def _find_hey_jarvis_model() -> str:
-    """O modelo 'hey jarvis' já vem embutido no pacote openwakeword — não precisa baixar nada."""
+def _find_wake_word_model() -> str:
+    """
+    Por padrão usa o 'hey jarvis' embutido no pacote (funciona sem baixar
+    nada). Se `JARVIS_WAKE_WORD_MODEL_PATH` estiver definido no .env,
+    usa esse caminho — é o jeito de usar um modelo customizado (ex: só
+    "JARVIS", sem o "hey"), depois de treinar um (veja o README, seção
+    "Wake word customizada").
+    """
+    caminho_customizado = os.environ.get("JARVIS_WAKE_WORD_MODEL_PATH", "").strip()
+    if caminho_customizado:
+        if not os.path.exists(caminho_customizado):
+            raise RuntimeError(f"JARVIS_WAKE_WORD_MODEL_PATH aponta pra um arquivo que não existe: {caminho_customizado}")
+        return caminho_customizado
+
     import openwakeword
 
     base = os.path.dirname(openwakeword.__file__)
@@ -462,7 +474,7 @@ def main():
         print(f"Erro: {e}")
         sys.exit(1)
 
-    model_path = _find_hey_jarvis_model()
+    model_path = _find_wake_word_model()
     model = Model(wakeword_model_paths=[model_path])
     model_key = list(model.models.keys())[0]
 

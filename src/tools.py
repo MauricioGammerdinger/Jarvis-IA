@@ -36,6 +36,7 @@ import email_hub
 import embeddings
 import finance
 import health_check
+import quick_briefing
 import google_calendar
 import morning_digest
 import mouse_control
@@ -1002,6 +1003,11 @@ TOOLS = [
         "description": "Checa tudo de uma vez — Ollama, modelo, microfone, banco de dados, e se algum agente de fundo está com erro. USE quando o usuário perguntar algo como 'está tudo funcionando?' ou 'faz um diagnóstico'.",
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "briefing_rapido",
+        "description": "Resumo rápido do que importa AGORA — próximo compromisso, e-mails pendentes de ação, notificações não lidas. USE quando o usuário disser algo como 'fala comigo, JARVIS', 'me dá um resumo rápido', ou similar — é uma sitrep curta, não o Morning Digest completo.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
 ]
 
 # Tools seguras o bastante pra entrar numa rotina — só leitura de
@@ -1015,7 +1021,7 @@ ROTINA_TOOLS_PERMITIDAS = {
     "ver_emails", "ver_noticias", "gerar_morning_digest", "ver_camera",
     "ver_custo_ia", "ver_assinaturas_ia", "listar_compromissos",
     "listar_pessoas", "ver_retrospectiva_semanal", "ver_trilha_auditoria",
-    "listar_rotinas",
+    "listar_rotinas", "briefing_rapido", "diagnostico_completo",
 }
 
 
@@ -1543,6 +1549,9 @@ def execute_tool(name: str, tool_input: dict) -> str:
     if name == "diagnostico_completo":
         resultado = health_check.run_full_diagnostics()
         return health_check.format_summary(resultado)
+
+    if name == "briefing_rapido":
+        return quick_briefing.get_quick_briefing()
 
     return f"Ferramenta desconhecida: {name}"
 
