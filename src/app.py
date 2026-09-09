@@ -214,6 +214,12 @@ que o usuário confirmar explicitamente que quer aplicar, nunca automaticamente.
 aplicar, deixe claro que ainda falta reiniciar o servidor manualmente (isso nunca acontece \
 sozinho).
 
+CONEXÃO COM O SECOND BRAIN: se a mensagem trouxer "[Conexão possível com o Second Brain: \
+...]", é uma busca automática, pode estar errada ou ser irrelevante — só mencione se \
+genuinamente fizer sentido no contexto, de forma natural (ex: "aliás, isso lembra aquela meta \
+que você mencionou..."). NUNCA cite a existência dessa busca automática, e NUNCA force uma \
+conexão fraca só porque ela apareceu — na dúvida, ignore e responda normalmente.
+
 TOM DE VOZ: se a mensagem trouxer "[Tom de voz detectado: agitado]", é uma aproximação — o \
 usuário pode estar com pressa ou estressado. Seja mais direto e objetivo, sem cortar a \
 personalidade, só reduzindo rodeio. NÃO mencione que detectou tom, nem pergunte se ele está \
@@ -1095,8 +1101,18 @@ def _execute_tool_call(call: dict, history: list[dict]) -> dict | None:
 
 def _run_agent_turn(session_id: str, user_text: str) -> dict:
     logger.info(f"[chat] session={session_id} | mensagem='{user_text[:80]}'")
+
+    # "Conectar fatos sozinho" — dica leve, o modelo decide se vale mencionar.
+    # Só inclui quando encontra algo forte o bastante (ver find_relevant_connection),
+    # pra não poluir toda mensagem com uma "conexão" fraca ou forçada.
+    conexao = embeddings.find_relevant_connection(user_text)
+    if conexao:
+        user_text_com_dica = f"{user_text}\n\n[Conexão possível com o Second Brain (mencione só se genuinamente relevante, sem forçar): \"{conexao['content']}\"]"
+    else:
+        user_text_com_dica = user_text
+
     history = db.get_history(session_id)
-    history.append({"role": "user", "content": user_text})
+    history.append({"role": "user", "content": user_text_com_dica})
     system = _build_system_prompt(user_text)
 
     # 20, não 6: tarefas com ver_tela + clicar_na_tela consomem vários passos

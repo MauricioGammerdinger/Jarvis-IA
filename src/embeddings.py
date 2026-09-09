@@ -141,3 +141,38 @@ def smart_search(query: str, limit: int = 5) -> list[dict]:
         logger.debug(f"[embeddings] smart_search caiu pro fallback de palavra-chave depois de {time.monotonic() - t0:.1f}s: {e}")
     # Fallback: palavra-chave normal
     return db.search_memories(query, limit=limit)
+
+
+# ── "Conectar fatos sozinho" — acha uma conexão relevante com o que já foi guardado ──
+CONNECTION_SIMILARITY_THRESHOLD = float(os.environ.get("JARVIS_CONNECTION_THRESHOLD", "0.55"))
+
+
+def find_relevant_connection(mensagem_usuario: str) -> dict | None:
+    """
+    Busca no Second Brain algo relacionado com a mensagem atual — pra o
+    JARVIS conseguir puxar uma conexão sozinho ("isso tem a ver com
+    aquela meta de dezembro"), sem o usuário pedir. Só devolve algo se a
+    similaridade for forte o bastante (evita forçar conexão fraca/
+    aleatória) — no fallback por palavra-chave (sem embeddings
+    disponível), não tem esse score, então aceita o primeiro resultado
+    encontrado (a busca por palavra-chave já filtra por relevância
+    mínima sozinha, de outro jeito).
+
+    ⚠️ O limiar (`JARVIS_CONNECTION_THRESHOLD`) não pôde ser calibrado
+    com embeddings de verdade no ambiente onde isso foi escrito (rede
+    bloqueada) — é um valor razoável por padrão, mas ajuste no .env se
+    perceber conexões fracas demais (sobe o valor) ou nenhuma conexão
+    aparecendo nunca (desce o valor).
+    """
+    if len(mensagem_usuario.strip()) < 15:
+        return None  # mensagem curta demais, não vale a pena buscar (ex: "oi", "obrigado")
+
+    resultados = smart_search(mensagem_usuario, limit=1)
+    if not resultados:
+        return None
+
+    melhor = resultados[0]
+    if "similarity" in melhor and melhor["similarity"] < CONNECTION_SIMILARITY_THRESHOLD:
+        return None  # veio de embeddings, mas não é parecido o suficiente
+
+    return melhor

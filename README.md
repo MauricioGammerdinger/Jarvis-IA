@@ -1665,7 +1665,25 @@ com um rosto humano de verdade — isso depende inteiramente da
 biblioteca de terceiros, e de como ela se comporta com o seu rosto, sua
 iluminação, sua webcam.
 
-## Second Brain mais profundo — pessoas, aniversários, metas com gráfico
+## Second Brain mais profundo — pessoas, aniversários, metas com gráfico, conexões automáticas
+
+### Conectar fatos sozinho
+Durante a conversa, o JARVIS busca sozinho (por similaridade de
+significado, não só palavra exata) algo do Second Brain relacionado com
+o que você está falando — e menciona, **só se fizer sentido de
+verdade**, sem forçar:
+```
+"Tô com preguiça de estudar hoje" → pode puxar "você mencionou querer aprender inglês fluente" se for genuinamente relevante
+```
+⚠️ **Não pude calibrar o limiar de similaridade com embeddings reais**
+no ambiente onde escrevi isso (rede bloqueada pro HuggingFace) — o
+padrão (`JARVIS_CONNECTION_THRESHOLD=0.55`) é um valor razoável, mas
+ajuste no `.env` conforme o comportamento real no seu PC: sobe se as
+conexões vierem fracas/forçadas, desce se nunca aparecer nenhuma.
+**Testado**: a lógica de decisão (mensagem curta ignorada, similaridade
+forte aceita, fraca rejeitada, sem resultado) nos 4 cenários — a
+qualidade real da busca semântica em si depende do modelo de embeddings
+rodando de verdade no seu PC.
 
 ### Pessoas e aniversários
 ```
