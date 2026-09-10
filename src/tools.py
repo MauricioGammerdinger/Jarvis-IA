@@ -1017,6 +1017,35 @@ TOOLS = [
         },
     },
     {
+        "name": "registrar_conhecimento_tecnico",
+        "description": (
+            "Guarda um bug resolvido, decisão de arquitetura, ou padrão técnico aprendido — cruza "
+            "TODOS os projetos do usuário (Nuvel, Jarvis-IA, Gatolíngua, Area 52, etc). USE sempre "
+            "que um bug for resolvido de verdade na conversa (com a causa e a solução claras), ou "
+            "uma decisão técnica importante for tomada — sem esperar o usuário pedir."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tipo": {"type": "string", "enum": ["bug", "decisao", "padrao"]},
+                "titulo": {"type": "string", "description": "Resumo curto (ex: 'Erro de conexão IMAP')."},
+                "descricao": {"type": "string", "description": "O problema ou contexto."},
+                "solucao": {"type": "string", "description": "O que resolveu, ou a decisão tomada."},
+                "projeto": {"type": "string", "description": "Ex: 'Nuvel', 'Jarvis-IA', 'Gatolíngua', 'Area 52'. Omitir se genérico."},
+            },
+            "required": ["tipo", "titulo", "descricao"],
+        },
+    },
+    {
+        "name": "buscar_conhecimento_tecnico",
+        "description": "Busca na Memória de Engenharia por um bug/decisão/padrão parecido com o problema atual — USE quando o usuário descrever um problema técnico, antes de sugerir uma solução do zero.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"consulta": {"type": "string"}},
+            "required": ["consulta"],
+        },
+    },
+    {
         "name": "briefing_rapido",
         "description": "Resumo rápido do que importa AGORA — próximo compromisso, e-mails pendentes de ação, notificações não lidas. USE quando o usuário disser algo como 'fala comigo, JARVIS', 'me dá um resumo rápido', ou similar — é uma sitrep curta, não o Morning Digest completo.",
         "input_schema": {"type": "object", "properties": {}},
@@ -1578,6 +1607,27 @@ def execute_tool(name: str, tool_input: dict) -> str:
         passos = [{"ferramenta": ferramenta_a, "argumentos": {}}, {"ferramenta": ferramenta_b, "argumentos": {}}]
         db.add_routine(tool_input["nome_rotina"], passos)
         return f"Rotina '{tool_input['nome_rotina']}' criada com '{ferramenta_a}' e '{ferramenta_b}'."
+
+    if name == "registrar_conhecimento_tecnico":
+        memory_id = embeddings.add_engineering_memory_with_embedding(
+            tool_input["tipo"], tool_input["titulo"], tool_input["descricao"],
+            tool_input.get("solucao"), tool_input.get("projeto"),
+        )
+        return f"Conhecimento técnico '{tool_input['titulo']}' guardado (#{memory_id})."
+
+    if name == "buscar_conhecimento_tecnico":
+        resultados = embeddings.smart_search_engineering_memory(tool_input["consulta"], limit=3)
+        if not resultados:
+            return "Nada parecido encontrado na Memória de Engenharia."
+        partes = []
+        for r in resultados:
+            info = f"[{r['tipo']}] {r['titulo']}"
+            if r.get("projeto"):
+                info += f" ({r['projeto']})"
+            if r.get("solucao"):
+                info += f" — solução: {r['solucao']}"
+            partes.append(info)
+        return "\n".join(partes)
 
     if name == "briefing_rapido":
         return quick_briefing.get_quick_briefing()

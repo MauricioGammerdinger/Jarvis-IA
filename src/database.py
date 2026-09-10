@@ -266,6 +266,21 @@ def init_db():
 
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS engineering_memory (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                projeto TEXT,
+                tipo TEXT NOT NULL,
+                titulo TEXT NOT NULL,
+                descricao TEXT NOT NULL,
+                solucao TEXT,
+                embedding TEXT,
+                criado_em TEXT NOT NULL
+            )
+            """
+        )
+
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 tipo TEXT NOT NULL,
@@ -1123,6 +1138,56 @@ def find_recurring_tool_patterns(janela_minutos: int = 10, min_dias_distintos: i
     ]
     resultado.sort(key=lambda x: -x["dias_distintos"])
     return resultado
+
+
+# ── Memória de Engenharia — bugs, decisões e padrões, cruzando projetos ──
+def add_engineering_memory(
+    tipo: str, titulo: str, descricao: str, solucao: str | None = None,
+    projeto: str | None = None, embedding: list[float] | None = None,
+) -> int:
+    with _connect() as conn:
+        cursor = conn.execute(
+            "INSERT INTO engineering_memory (projeto, tipo, titulo, descricao, solucao, embedding, criado_em) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (projeto, tipo, titulo, descricao, solucao, json.dumps(embedding) if embedding else None,
+             datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def list_engineering_memories(projeto: str | None = None) -> list[dict]:
+    with _connect() as conn:
+        if projeto:
+            rows = conn.execute(
+                "SELECT * FROM engineering_memory WHERE projeto = ? ORDER BY id DESC", (projeto,)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM engineering_memory ORDER BY id DESC").fetchall()
+        return [dict(r) for r in rows]
+
+
+def all_engineering_memories_with_embeddings() -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM engineering_memory WHERE embedding IS NOT NULL").fetchall()
+        return [dict(r) for r in rows]
+
+
+def search_engineering_memories_by_keyword(query: str, limit: int = 5) -> list[dict]:
+    """Fallback por palavra-chave, quando embeddings não estiverem disponíveis — mesmo padrão de `search_memories`."""
+    terms = [w for w in query.split() if w.strip()]
+    if not terms:
+        return []
+    with _connect() as conn:
+        conditions = " AND ".join(["(titulo LIKE ? OR descricao LIKE ? OR solucao LIKE ?)"] * len(terms))
+        params = []
+        for t in terms:
+            params.extend([f"%{t}%", f"%{t}%", f"%{t}%"])
+        rows = conn.execute(
+            f"SELECT * FROM engineering_memory WHERE {conditions} ORDER BY id DESC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # ── Estado de voz — ponte entre o processo do listener e a FACE no navegador ──

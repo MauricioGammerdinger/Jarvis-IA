@@ -232,6 +232,13 @@ genuinamente fizer sentido no contexto, de forma natural (ex: "aliás, isso lemb
 que você mencionou..."). NUNCA cite a existência dessa busca automática, e NUNCA force uma \
 conexão fraca só porque ela apareceu — na dúvida, ignore e responda normalmente.
 
+MEMÓRIA DE ENGENHARIA: separada do Second Brain — é sobre bugs, decisões técnicas e padrões, \
+cruzando TODOS os projetos do usuário (Nuvel, Jarvis-IA, Gatolíngua, Area 52). Sempre que um bug \
+for resolvido de verdade na conversa (causa + solução claras) ou uma decisão técnica importante \
+for tomada, chame `registrar_conhecimento_tecnico` sem esperar pedido. Se a mensagem trouxer \
+"[Conhecimento técnico relevante: ...]", é busca automática — mesma regra da conexão do Second \
+Brain: só mencione se genuinamente parecido, nunca force, nunca cite a busca em si.
+
 TOM DE VOZ: se a mensagem trouxer "[Tom de voz detectado: agitado]", é uma aproximação — o \
 usuário pode estar com pressa ou estressado. Seja mais direto e objetivo, sem cortar a \
 personalidade, só reduzindo rodeio. NÃO mencione que detectou tom, nem pergunte se ele está \
@@ -1278,10 +1285,13 @@ def _run_agent_turn(session_id: str, user_text: str) -> dict:
     # Só inclui quando encontra algo forte o bastante (ver find_relevant_connection),
     # pra não poluir toda mensagem com uma "conexão" fraca ou forçada.
     conexao = embeddings.find_relevant_connection(user_text)
+    conhecimento_tecnico = embeddings.find_relevant_engineering_memory(user_text)
+    user_text_com_dica = user_text
     if conexao:
-        user_text_com_dica = f"{user_text}\n\n[Conexão possível com o Second Brain (mencione só se genuinamente relevante, sem forçar): \"{conexao['content']}\"]"
-    else:
-        user_text_com_dica = user_text
+        user_text_com_dica += f"\n\n[Conexão possível com o Second Brain (mencione só se genuinamente relevante, sem forçar): \"{conexao['content']}\"]"
+    if conhecimento_tecnico:
+        solucao_txt = f" — solução: {conhecimento_tecnico['solucao']}" if conhecimento_tecnico.get("solucao") else ""
+        user_text_com_dica += f"\n\n[Conhecimento técnico relevante (mencione só se genuinamente parecido, sem forçar): \"{conhecimento_tecnico['titulo']}\"{solucao_txt}]"
 
     history = db.get_history(session_id)
     history.append({"role": "user", "content": user_text_com_dica})
@@ -1514,9 +1524,13 @@ async def chat_media_stream(
         logger.info(f"[stream-voz] session={session_id} | transcrição='{transcript[:80]}'")
 
         conexao = embeddings.find_relevant_connection(user_text)
+        conhecimento_tecnico = embeddings.find_relevant_engineering_memory(user_text)
         user_text_com_dica = user_text
         if conexao:
             user_text_com_dica += f"\n\n[Conexão possível com o Second Brain (mencione só se genuinamente relevante, sem forçar): \"{conexao['content']}\"]"
+        if conhecimento_tecnico:
+            solucao_txt = f" — solução: {conhecimento_tecnico['solucao']}" if conhecimento_tecnico.get("solucao") else ""
+            user_text_com_dica += f"\n\n[Conhecimento técnico relevante (mencione só se genuinamente parecido, sem forçar): \"{conhecimento_tecnico['titulo']}\"{solucao_txt}]"
 
         history = db.get_history(session_id)
         history.append({"role": "user", "content": user_text_com_dica})

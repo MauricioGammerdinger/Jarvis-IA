@@ -275,6 +275,7 @@ na raiz do projeto, não dentro de `src/`.
 | `registrar_transacao` / `ver_resumo_financeiro` / `definir_orcamento_categoria` | Dashboard financeiro geral |
 | `diagnostico_completo` | Checa Ollama, modelo, microfone, banco, e agentes de uma vez |
 | `aceitar_sugestao_automacao` | Vira rotina uma sugestão de padrão detectado |
+| `registrar_conhecimento_tecnico` / `buscar_conhecimento_tecnico` | Memória de Engenharia (bugs/decisões, cruza projetos) |
 | `briefing_rapido` | Sitrep curta — "fala comigo, JARVIS" |
 | `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
@@ -1973,6 +1974,34 @@ acidente no meu próprio teste, o que valida ainda melhor — **nunca
 sugere um par que já é uma rotina existente** (tentei sugerir
 `controlar_luz` + `ver_agenda_hoje`, que já é o Protocolo Foco, e foi
 corretamente ignorado).
+
+## Memória de Engenharia — a ideia mais inovadora do dia
+
+Separada do Second Brain (que é sobre você como pessoa) — essa é sobre
+você como **engenheiro**, cruzando todos os seus projetos (Nuvel,
+Jarvis-IA, Gatolíngua, Area 52):
+```
+"resolvi o bug de conexão IMAP, era a porta errada"  → guarda sozinho
+[semanas depois]
+"tô com timeout conectando no servidor de e-mail" → "isso parece com
+aquele bug de porta IMAP que você resolveu no Gatolíngua — era a 587,
+trocou pra 465"
+```
+Registra bugs resolvidos (causa + solução), decisões de arquitetura, e
+padrões — sem esperar você pedir, sempre que um bug for resolvido de
+verdade na conversa. Busca semântica (com fallback por palavra-chave,
+mesmo padrão do Second Brain) reconecta sozinho quando um problema novo
+parece com algo já resolvido antes, em qualquer projeto.
+
+**Testado**: cadastro, listagem geral e por projeto, busca por
+palavra-chave — incluindo um achado real sobre a limitação do fallback
+(exige todas as palavras da consulta; funciona melhor com termos
+técnicos diretos que com frase cheia de preenchimento — isso é herdado
+do mesmo padrão já usado no Second Brain, não uma limitação nova).
+Testadas as 2 tools (`registrar_conhecimento_tecnico` /
+`buscar_conhecimento_tecnico`) de ponta a ponta, e a injeção automática
+no fluxo de chat (texto e voz), com instrução no prompt pra nunca forçar
+uma conexão fraca nem citar a busca em si.
 
 ## Fine-tuning — dando personalidade própria ao modelo
 

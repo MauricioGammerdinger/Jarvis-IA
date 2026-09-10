@@ -121,6 +121,20 @@ def add_memory_with_embedding(content: str, category: str = "general") -> int:
         return db.add_memory(content, category, embedding=None)
 
 
+def add_engineering_memory_with_embedding(
+    tipo: str, titulo: str, descricao: str, solucao: str | None = None, projeto: str | None = None
+) -> int:
+    """Mesmo padrão de `add_memory_with_embedding` — calcula embedding se possível, salva sem se o modelo falhar."""
+    import database as db
+
+    texto_pra_embedding = f"{titulo}. {descricao}. {solucao or ''}"
+    try:
+        vector = embed_text(texto_pra_embedding)
+        return db.add_engineering_memory(tipo, titulo, descricao, solucao, projeto, embedding=vector)
+    except Exception:
+        return db.add_engineering_memory(tipo, titulo, descricao, solucao, projeto, embedding=None)
+
+
 def smart_search(query: str, limit: int = 5) -> list[dict]:
     """
     Busca semântica com fallback automático:
@@ -174,5 +188,46 @@ def find_relevant_connection(mensagem_usuario: str) -> dict | None:
     melhor = resultados[0]
     if "similarity" in melhor and melhor["similarity"] < CONNECTION_SIMILARITY_THRESHOLD:
         return None  # veio de embeddings, mas não é parecido o suficiente
+
+    return melhor
+
+
+# ── Memória de Engenharia — busca semântica com fallback, mesmo padrão do Second Brain ──
+ENGINEERING_MEMORY_SIMILARITY_THRESHOLD = float(os.environ.get("JARVIS_ENGINEERING_MEMORY_THRESHOLD", "0.5"))
+
+
+def smart_search_engineering_memory(query: str, limit: int = 3) -> list[dict]:
+    """Busca semântica na Memória de Engenharia, com fallback pra palavra-chave — mesmo padrão de `smart_search`."""
+    import database as db
+
+    try:
+        query_vector = embed_text(query)
+        candidates = db.all_engineering_memories_with_embeddings()
+        if candidates:
+            return rank_by_similarity(query_vector, candidates, limit=limit)
+    except Exception as e:
+        logger.debug(f"[embeddings] smart_search_engineering_memory caiu pro fallback de palavra-chave: {e}")
+    return db.search_engineering_memories_by_keyword(query, limit=limit)
+
+
+def find_relevant_engineering_memory(mensagem_usuario: str) -> dict | None:
+    """
+    Busca na Memória de Engenharia algo relacionado com o problema atual
+    — pro JARVIS conseguir lembrar sozinho de um bug/decisão parecida de
+    outro projeto. Só devolve se a similaridade for forte o bastante (via
+    embeddings) — no fallback por palavra-chave, aceita o primeiro
+    resultado (a busca por palavra-chave já filtra relevância mínima
+    sozinha, de outro jeito).
+    """
+    if len(mensagem_usuario.strip()) < 15:
+        return None
+
+    resultados = smart_search_engineering_memory(mensagem_usuario, limit=1)
+    if not resultados:
+        return None
+
+    melhor = resultados[0]
+    if "similarity" in melhor and melhor["similarity"] < ENGINEERING_MEMORY_SIMILARITY_THRESHOLD:
+        return None
 
     return melhor
