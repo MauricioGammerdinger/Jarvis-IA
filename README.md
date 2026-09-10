@@ -187,6 +187,7 @@ jarvis-ia/
 │   ├── self_update.py                                    # Auto-atualização (checar/aplicar, nunca reinicia sozinho)
 │   ├── finance.py                                        # Dashboard financeiro (resumo, saldo, orçamento)
 │   ├── quick_briefing.py                                 # Briefing rápido ("fala comigo, JARVIS")
+│   ├── voice_recognition.py                              # Reconhecimento de voz (MFCC, só personalização)
 │   ├── ai_tokens.py                                    # Dashboard de Tokens de IA (custo + cota)
 │   ├── wake_word_listener.py                   # "Hey JARVIS" — ativação por voz
 │   └── tray_app.py                               # Ícone na bandeja do sistema
@@ -273,6 +274,7 @@ na raiz do projeto, não dentro de `src/`.
 | `checar_atualizacao_jarvis` / `aplicar_atualizacao_jarvis` | Auto-atualização via GitHub, com confirmação |
 | `registrar_transacao` / `ver_resumo_financeiro` / `definir_orcamento_categoria` | Dashboard financeiro geral |
 | `diagnostico_completo` | Checa Ollama, modelo, microfone, banco, e agentes de uma vez |
+| `aceitar_sugestao_automacao` | Vira rotina uma sugestão de padrão detectado |
 | `briefing_rapido` | Sitrep curta — "fala comigo, JARVIS" |
 | `cadastrar_app` | Cadastra um app novo direto na conversa, quando `open_app` não encontra |
 | `list_linear_teams` / `create_linear_issue` | Integração com Linear (opcional) |
@@ -1910,6 +1912,67 @@ fluxo completo (`handle_wake_word_detected`) confirmando que narra o
 passo ANTES da resposta final, na ordem certa. Também expandi os
 rótulos de atividade pra cobrir todas as 68 tools (achei 2 sem rótulo
 específico durante o teste, corrigi antes de fechar).
+
+## Reconhecimento de quem está falando — só personalização, nunca segurança
+
+O JARVIS pode reconhecer sua voz (pelo timbre, não pelo que você fala) e
+ajustar o tratamento — "senhor", "chefe", o que você quiser. **Importante
+sobre o escopo**: isso é só cosmético. Nunca restringe ações nem é usado
+como camada de segurança — se identificar errado, o pior caso é só
+chamar a pessoa errada pelo nome errado.
+
+### Cadastrar
+Vá em Configurar → "🗣️ Perfis de voz", preencha nome (e tratamento,
+opcional), clique "Gravar amostra (3s)" e fala uma frase qualquer.
+
+### Como funciona por baixo dos panos
+Usa MFCC (coeficientes que capturam o timbre/formato do trato vocal) em
+vez de uma rede neural pesada de embedding — deliberadamente mais
+simples, já que o caso de uso permite (baixo risco se errar). Isso
+também evitou uma dor de cabeça real: tentei primeiro uma biblioteca
+baseada em PyTorch (`resemblyzer`), mas o ambiente sem GPU brigou com as
+dependências CUDA dela (chegou a faltar espaço em disco no processo) —
+troquei pra essa abordagem mais leve, que não depende de GPU nem de
+rede neural nenhuma.
+
+⚠️ MFCC é reconhecidamente menos preciso que embeddings dedicados —
+pode confundir vozes parecidas ou errar com ruído de fundo.
+
+**Testado**: gerei 2 "vozes" sintéticas de verdade (via `espeak-ng`, com
+pitch/velocidade diferentes) e confirmei que identifica corretamente
+cada uma mesmo com uma frase diferente da usada no cadastro
+(similaridade 0.99+). Achei e corrigi um bug real no meio do caminho —
+o navegador grava em webm, e o `librosa` não lê esse formato direto da
+memória; corrigi convertendo sempre via `ffmpeg` primeiro. Testado
+também visualmente (Playwright + microfone falso do Chrome), confirmando
+a evolução real da tela ("Gravando..." → "Processando..." → "cadastrada!")
+— o processo todo leva uns 7 segundos, a maior parte é a conversão de
+áudio e o cálculo do MFCC, não é instantâneo.
+
+## Sugestão de automação por padrão
+
+Todo comando registra qual tool foi usada e quando (só isso — nome da
+tool e horário, nada de conteúdo). Uma vez por dia, o JARVIS confere se
+você sempre faz a mesma sequência de 2 ações próximas no tempo (dentro
+de 10 minutos), em pelo menos 3 dias diferentes — se sim, sugere virar
+rotina:
+```
+💡 "Notei que você sempre faz 'controlar_luz' seguido de 'ver_agenda_hoje'
+   (em 3 dias diferentes). Quer que eu vire isso uma rotina?"
+"Hey JARVIS, sim, cria isso" → cria a rotina de verdade
+```
+**Limitação honesta**: só funciona depois de uso de verdade — sem
+histórico suficiente, não tem padrão nenhum pra detectar. Não é uma
+feature que "prova valor" no primeiro dia.
+
+**Testado**: os cenários mais importantes — detecta o padrão real (3
+dias, poucos minutos de diferença), não dispara abaixo do limiar de 3
+dias (evita alarme falso com pouco dado), ignora eventos fora da janela
+de tempo, não repete a mesma sugestão duas vezes, e — confirmado por
+acidente no meu próprio teste, o que valida ainda melhor — **nunca
+sugere um par que já é uma rotina existente** (tentei sugerir
+`controlar_luz` + `ver_agenda_hoje`, que já é o Protocolo Foco, e foi
+corretamente ignorado).
 
 ## Fine-tuning — dando personalidade própria ao modelo
 

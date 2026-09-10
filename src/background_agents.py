@@ -119,6 +119,14 @@ AGENTS_REGISTRY = {
         "run_path": "/agents/self_update_check/run",
         "arquivo": "repositório git do projeto",
     },
+    "pattern_suggestion": {
+        "nome": "Sugestão de Automação",
+        "icon": "💡",
+        "faz": "Sugere virar rotina se notar o mesmo padrão de ações repetido em vários dias.",
+        "every_min": 24 * 60,
+        "run_path": "/agents/pattern_suggestion/run",
+        "arquivo": "jarvis.db (tabela tool_call_log)",
+    },
 }
 
 
@@ -155,6 +163,8 @@ def _agent_is_configured(agent_id: str) -> bool:
         if agent_id == "birthday_reminder":
             return True
         if agent_id == "self_update_check":
+            return True
+        if agent_id == "pattern_suggestion":
             return True
     except Exception:
         return False
@@ -622,6 +632,53 @@ def run_self_update_check_job() -> None:
     db.record_agent_run("self_update_check", "ok", f"{total_novo} commit(s) pendente(s)", "")
 
 
+def run_pattern_suggestion_job() -> None:
+    """
+    Detecta se você sempre faz a mesma sequência de 2 ações (dentro de
+    poucos minutos, em vários dias diferentes) e sugere virar uma
+    rotina — sem forçar, só avisa uma vez por padrão detectado.
+    """
+    import database as db
+
+    padroes = db.find_recurring_tool_patterns(janela_minutos=10, min_dias_distintos=3)
+    if not padroes:
+        db.record_agent_run("pattern_suggestion", "ok", "Nenhum padrão recorrente ainda", "")
+        return
+
+    # Não sugere um par que já virou rotina — verifica se as duas tools
+    # já aparecem juntas, em qualquer ordem, nos passos de alguma rotina existente.
+    rotinas_existentes = db.list_routines()
+    ferramentas_em_rotinas = set()
+    for r in rotinas_existentes:
+        ferramentas_da_rotina = {p["ferramenta"] for p in r["passos"]}
+        if len(ferramentas_da_rotina) > 1:
+            ferramentas_em_rotinas.add(frozenset(ferramentas_da_rotina))
+
+    # Não repete a mesma sugestão de novo — verifica notificações já enviadas.
+    ja_sugeridas = {
+        n["mensagem"] for n in db.list_all_notifications(limite=100) if n["tipo"] == "sugestao_automacao"
+    }
+
+    for padrao in padroes:
+        par = frozenset({padrao["ferramenta_a"], padrao["ferramenta_b"]})
+        if any(par.issubset(f) for f in ferramentas_em_rotinas):
+            continue  # já é uma rotina, não sugere de novo
+
+        mensagem = (
+            f"Notei que você sempre faz '{padrao['ferramenta_a']}' seguido de "
+            f"'{padrao['ferramenta_b']}' (em {padrao['dias_distintos']} dias diferentes). "
+            f"Quer que eu vire isso uma rotina?"
+        )
+        if mensagem in ja_sugeridas:
+            continue  # já sugeriu essa exata, não repete
+
+        db.create_notification("sugestao_automacao", "💡 Sugestão de automação", mensagem)
+        db.record_agent_run("pattern_suggestion", "ok", f"Sugeriu: {padrao['ferramenta_a']} + {padrao['ferramenta_b']}", "")
+        return  # uma sugestão por vez, não bombardeia com várias de uma vez
+
+    db.record_agent_run("pattern_suggestion", "ok", "Padrões encontrados, mas já cobertos ou já sugeridos", "")
+
+
 _scheduler: BackgroundScheduler | None = None
 
 
@@ -645,6 +702,7 @@ def start_scheduler() -> BackgroundScheduler:
     _scheduler.add_job(run_emotion_check_job, "interval", minutes=_cam_config.EMOTION_CHECK_INTERVAL_MINUTES, id="emotion_check", next_run_time=now)
     _scheduler.add_job(run_birthday_reminder_job, "interval", hours=12, id="birthday_reminder", next_run_time=now)
     _scheduler.add_job(run_self_update_check_job, "interval", hours=6, id="self_update_check", next_run_time=now)
+    _scheduler.add_job(run_pattern_suggestion_job, "interval", hours=24, id="pattern_suggestion", next_run_time=now)
     _scheduler.start()
     return _scheduler
 

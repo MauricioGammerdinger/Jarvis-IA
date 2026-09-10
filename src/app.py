@@ -45,6 +45,7 @@ import background_agents
 import finance
 import health_check
 import quick_briefing
+import voice_recognition
 import self_update
 import code_editor
 import ai_tokens
@@ -221,6 +222,10 @@ que o usuário confirmar explicitamente que quer aplicar, nunca automaticamente.
 aplicar, deixe claro que ainda falta reiniciar o servidor manualmente (isso nunca acontece \
 sozinho).
 
+SUGESTÃO DE AUTOMAÇÃO: se você mesmo já sugeriu uma automação antes (notificação tipo "Sugestão \
+de automação") e o usuário aceitar, chame `aceitar_sugestao_automacao` com as 2 ferramentas \
+mencionadas na sugestão e um nome pra rotina (pergunte o nome se não tiver ficado claro).
+
 CONEXÃO COM O SECOND BRAIN: se a mensagem trouxer "[Conexão possível com o Second Brain: \
 ...]", é uma busca automática, pode estar errada ou ser irrelevante — só mencione se \
 genuinamente fizer sentido no contexto, de forma natural (ex: "aliás, isso lembra aquela meta \
@@ -231,6 +236,11 @@ TOM DE VOZ: se a mensagem trouxer "[Tom de voz detectado: agitado]", é uma apro
 usuário pode estar com pressa ou estressado. Seja mais direto e objetivo, sem cortar a \
 personalidade, só reduzindo rodeio. NÃO mencione que detectou tom, nem pergunte se ele está \
 bem — é só um ajuste de estilo silencioso, nunca vire terapeuta por causa disso.
+
+QUEM ESTÁ FALANDO: se a mensagem trouxer "[Falando com: Nome, trate-o(a) como 'X']", use esse \
+tratamento naturalmente na resposta (ex: "X" em vez do padrão) — NUNCA mencione que "identificou \
+a voz" ou qualquer coisa técnica sobre isso, é só um ajuste silencioso de como se dirigir à \
+pessoa. Se a mensagem NÃO trouxer essa dica, siga com o tratamento padrão de sempre.
 
 CHECK-IN EMOCIONAL (se ativado): de vez em quando você mesmo pode ter perguntado "como você \
 está?" sozinho, sem o usuário pedir (isso aparece no seu próprio histórico como uma mensagem \
@@ -906,6 +916,12 @@ def run_self_update_check_now():
     return {"ok": True, "snapshot": _compute_agent_snapshot("self_update_check")}
 
 
+@app.post("/agents/pattern_suggestion/run", dependencies=[Depends(require_api_key)])
+def run_pattern_suggestion_now():
+    background_agents.run_pattern_suggestion_job()
+    return {"ok": True, "snapshot": _compute_agent_snapshot("pattern_suggestion")}
+
+
 @app.get("/self-update/check", dependencies=[Depends(require_api_key)])
 def check_self_update_endpoint():
     return self_update.check_for_updates()
@@ -976,6 +992,36 @@ def run_diagnostics_endpoint():
 @app.get("/briefing", dependencies=[Depends(require_api_key)])
 def get_quick_briefing_endpoint():
     return {"texto": quick_briefing.get_quick_briefing()}
+
+
+# ── Perfis de voz — só personalização, nunca segurança ─────────────────
+@app.post("/voice-profiles/enroll", dependencies=[Depends(require_api_key)])
+async def enroll_voice_endpoint(
+    nome: str = Form(...),
+    tratamento: str | None = Form(None),
+    audio: UploadFile = File(...),
+):
+    raw = await audio.read()
+    _check_size(raw, audio.filename)
+    try:
+        voice_recognition.enroll_voice(nome, raw, tratamento)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+@app.get("/voice-profiles", dependencies=[Depends(require_api_key)])
+def list_voice_profiles_endpoint():
+    perfis = db.list_voice_profiles()
+    return {"profiles": [{"nome": p["nome"], "tratamento": p.get("tratamento")} for p in perfis]}
+
+
+@app.delete("/voice-profiles/{nome}", dependencies=[Depends(require_api_key)])
+def delete_voice_profile_endpoint(nome: str):
+    removido = db.delete_voice_profile(nome)
+    if not removido:
+        raise HTTPException(status_code=404, detail=f"Perfil de voz '{nome}' não encontrado.")
+    return {"ok": True}
 
 
 # ── Progresso de metas (pro gráfico) ───────────────────────────────────
@@ -1409,6 +1455,13 @@ async def chat_media(
         if tom != "neutro":
             text_parts.append(f"[Tom de voz detectado (aproximado, pode estar errado): {tom}]")
 
+        # Identificação de quem está falando — só personalização (nome/
+        # tratamento), nunca usado pra restringir nada.
+        locutor = voice_recognition.identify_speaker(raw)
+        if locutor:
+            tratamento_txt = f", trate-o(a) como '{locutor['tratamento']}'" if locutor.get("tratamento") else ""
+            text_parts.append(f"[Falando com: {locutor['nome']}{tratamento_txt}]")
+
     if video is not None:
         raw = await video.read()
         _check_size(raw, video.filename)
@@ -1451,6 +1504,11 @@ async def chat_media_stream(
     user_text = f"[Transcrição do áudio]: {transcript}"
     if tom != "neutro":
         user_text += f"\n[Tom de voz detectado (aproximado, pode estar errado): {tom}]"
+
+    locutor = voice_recognition.identify_speaker(raw)
+    if locutor:
+        tratamento_txt = f", trate-o(a) como '{locutor['tratamento']}'" if locutor.get("tratamento") else ""
+        user_text += f"\n[Falando com: {locutor['nome']}{tratamento_txt}]"
 
     def event_stream():
         logger.info(f"[stream-voz] session={session_id} | transcrição='{transcript[:80]}'")

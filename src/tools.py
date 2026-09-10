@@ -1004,6 +1004,19 @@ TOOLS = [
         "input_schema": {"type": "object", "properties": {}},
     },
     {
+        "name": "aceitar_sugestao_automacao",
+        "description": "USE quando o usuário aceitar uma sugestão de automação (notificação tipo 'Sugestão de automação') — cria a rotina de verdade com as 2 ferramentas mencionadas na sugestão.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nome_rotina": {"type": "string", "description": "Nome pra rotina (peça ao usuário, ou sugira um baseado no contexto)."},
+                "ferramenta_a": {"type": "string"},
+                "ferramenta_b": {"type": "string"},
+            },
+            "required": ["nome_rotina", "ferramenta_a", "ferramenta_b"],
+        },
+    },
+    {
         "name": "briefing_rapido",
         "description": "Resumo rápido do que importa AGORA — próximo compromisso, e-mails pendentes de ação, notificações não lidas. USE quando o usuário disser algo como 'fala comigo, JARVIS', 'me dá um resumo rápido', ou similar — é uma sitrep curta, não o Morning Digest completo.",
         "input_schema": {"type": "object", "properties": {}},
@@ -1061,6 +1074,11 @@ def get_active_tools() -> list[dict]:
 
 
 def execute_tool(name: str, tool_input: dict) -> str:
+    try:
+        db.log_tool_call(name)
+    except Exception:
+        pass  # o log é só pra detectar padrão depois — nunca pode travar a execução da tool de verdade
+
     if name == "remember":
         memory_id = embeddings.add_memory_with_embedding(
             tool_input["content"], tool_input.get("category", "general")
@@ -1551,6 +1569,15 @@ def execute_tool(name: str, tool_input: dict) -> str:
     if name == "diagnostico_completo":
         resultado = health_check.run_full_diagnostics()
         return health_check.format_summary(resultado)
+
+    if name == "aceitar_sugestao_automacao":
+        ferramenta_a, ferramenta_b = tool_input["ferramenta_a"], tool_input["ferramenta_b"]
+        for f in (ferramenta_a, ferramenta_b):
+            if f not in ROTINA_TOOLS_PERMITIDAS:
+                return f"Não posso incluir '{f}' numa rotina — só tools seguras (leitura + controle de dispositivo) podem ser encadeadas assim."
+        passos = [{"ferramenta": ferramenta_a, "argumentos": {}}, {"ferramenta": ferramenta_b, "argumentos": {}}]
+        db.add_routine(tool_input["nome_rotina"], passos)
+        return f"Rotina '{tool_input['nome_rotina']}' criada com '{ferramenta_a}' e '{ferramenta_b}'."
 
     if name == "briefing_rapido":
         return quick_briefing.get_quick_briefing()

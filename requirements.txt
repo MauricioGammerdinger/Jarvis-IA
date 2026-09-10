@@ -29,4 +29,5 @@ piper-tts>=1.3.0  # opcional — só necessário se JARVIS_TTS_ENGINE=piper no .
 opencv-python-headless>=4.8.0  # opcional — só necessário pra usar a câmera (ver_camera / check-in emocional)
 deepface>=0.0.93  # opcional — só necessário se JARVIS_EMOTION_CHECK_ENABLED=1 no .env
 tf-keras>=2.15.0  # opcional — dependência do deepface
+librosa>=0.10.0  # opcional — só necessário pra reconhecimento de voz (perfis de voz)
 pywin32>=306; sys_platform == "win32"

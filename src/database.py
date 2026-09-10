@@ -244,6 +244,28 @@ def init_db():
 
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS voice_profiles (
+                nome TEXT PRIMARY KEY,
+                assinatura TEXT NOT NULL,
+                tratamento TEXT,
+                criado_em TEXT NOT NULL
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tool_call_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ferramenta TEXT NOT NULL,
+                criado_em TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tool_call_log_criado_em ON tool_call_log(criado_em)")
+
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 tipo TEXT NOT NULL,
@@ -1028,6 +1050,79 @@ def get_category_budgets() -> dict[str, float]:
     with _connect() as conn:
         rows = conn.execute("SELECT * FROM category_budgets").fetchall()
         return {r["categoria"]: r["limite_mensal"] for r in rows}
+
+
+# ── Perfis de voz — só pra personalização, não segurança ──────────────
+def save_voice_profile(nome: str, assinatura: list[float], tratamento: str | None = None) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO voice_profiles (nome, assinatura, tratamento, criado_em) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(nome) DO UPDATE SET assinatura = excluded.assinatura, tratamento = excluded.tratamento",
+            (nome, json.dumps(assinatura), tratamento, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+
+
+def list_voice_profiles() -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM voice_profiles").fetchall()
+        resultado = []
+        for r in rows:
+            d = dict(r)
+            d["assinatura"] = json.loads(d["assinatura"])
+            resultado.append(d)
+        return resultado
+
+
+def delete_voice_profile(nome: str) -> bool:
+    with _connect() as conn:
+        cursor = conn.execute("DELETE FROM voice_profiles WHERE nome = ?", (nome,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+# ── Log de chamadas de tool — pra detectar padrão de uso repetido ──────
+def log_tool_call(ferramenta: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO tool_call_log (ferramenta, criado_em) VALUES (?, ?)",
+            (ferramenta, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+
+
+def find_recurring_tool_patterns(janela_minutos: int = 10, min_dias_distintos: int = 3) -> list[dict]:
+    """
+    Detecta pares de ferramentas (A, B) onde B é chamada dentro de
+    `janela_minutos` depois de A, em pelo menos `min_dias_distintos`
+    dias DIFERENTES — sinal de que pode valer virar uma rotina.
+    """
+    with _connect() as conn:
+        rows = conn.execute("SELECT ferramenta, criado_em FROM tool_call_log ORDER BY criado_em").fetchall()
+
+    eventos = [(r["ferramenta"], datetime.fromisoformat(r["criado_em"])) for r in rows]
+
+    pares_por_dia: dict[tuple, set] = {}
+    for i in range(len(eventos)):
+        ferramenta_a, tempo_a = eventos[i]
+        for j in range(i + 1, len(eventos)):
+            ferramenta_b, tempo_b = eventos[j]
+            delta_minutos = (tempo_b - tempo_a).total_seconds() / 60
+            if delta_minutos > janela_minutos:
+                break  # ordenado por tempo — passou da janela, não adianta olhar mais longe
+            if ferramenta_a == ferramenta_b:
+                continue
+            par = (ferramenta_a, ferramenta_b)
+            dia = tempo_a.date().isoformat()
+            pares_por_dia.setdefault(par, set()).add(dia)
+
+    resultado = [
+        {"ferramenta_a": a, "ferramenta_b": b, "dias_distintos": len(dias)}
+        for (a, b), dias in pares_por_dia.items()
+        if len(dias) >= min_dias_distintos
+    ]
+    resultado.sort(key=lambda x: -x["dias_distintos"])
+    return resultado
 
 
 # ── Estado de voz — ponte entre o processo do listener e a FACE no navegador ──
